@@ -16,7 +16,8 @@
 | --- | --- |
 | `project-overview.md` | 프로젝트 목적, AI 파트 책임, PoC 범위 정리 |
 | `architecture.md` | Lightweight Layered Architecture와 AI 파트 계층 구조 정리 |
-| `api-contract.md` | 백엔드와 AI 파트 사이의 API 계약 초안 |
+| `api-contract-v2.md` | 백엔드와 AI 파트 사이의 API 계약 (현재 기준 single source of truth) |
+| `api-contract.md` | API 계약 초안 (히스토리 보존용, v2로 대체됨) |
 | `framework-decision.md` | AI 파트에서 사용할 프레임워크와 후속 검토 도구 정리 |
 | `policy-rag-strategy.md` | 정책 문서 사용 기준과 답변 생성 원칙 정리 |
 | `development-guide.md` | 브랜치, 커밋, PR, secret 관리 규칙 |
@@ -25,7 +26,9 @@
 ## 문서 상태 기준
 
 - `draft`: 논의 중인 초안
+- `proposed`: 검토 중인 변경안
 - `decision`: 현재 팀 기준으로 채택한 결정
 - `guide`: 팀원이 따라야 하는 개발 가이드
+- `deprecated`: 더 이상 사용하지 않는 문서 (히스토리 보존 목적으로만 유지)
 
 현재 문서들은 초기 PoC 기준이며, 실제 구현이 시작되면 API 계약과 실행 방법은 변경될 수 있다.

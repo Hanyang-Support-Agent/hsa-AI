@@ -11,147 +11,171 @@ Frontend <-> Backend <-> AI
 ```
 
 AI 파트는 백엔드 뒤에 있는 보조 서비스다.
-프론트엔드, 고객 채널, 실제 응답 전송은 AI가 직접 처리하지 않는다. 정책 문서와 답변 생성 지식은 AI 파트가 관리한다.
+프론트엔드, 고객 채널, 실제 응답 전송은 AI가 직접 처리하지 않는다.
+정책 문서와 답변 생성 지식은 AI 파트가 관리한다.
 
 ## 아키텍처 결정
 
 HSA AI 파트는 초기 PoC에서 `Lightweight Layered Architecture`를 사용한다.
 
-쉽게 말하면, 하나의 FastAPI 서비스 안에서 다음 계층만 가볍게 분리한다.
+하나의 FastAPI 서비스 안에서 다음 계층만 가볍게 분리한다.
 
 ```text
 api -> schemas -> workflow -> services -> boundaries
 ```
 
-이 방식은 작은 프로젝트에서 과한 Clean Architecture나 Microservice 구조를 피하면서도, 백엔드와의 API 계약과 AI 내부 책임을 명확히 나누기 위한 선택이다.
-
-## 아키텍처 방향
-
-HSA AI 파트는 초기 PoC에서 Workflow-first 구조를 사용한다.
-
-즉, 여러 agent를 먼저 나누는 방식이 아니라 백엔드가 전달한 고객 문의 1건과 운영 데이터 맥락, AI 파트가 관리하는 Markdown 정책 문서 및 LlamaIndex 검색 결과를 바탕으로 답변 초안을 생성하는 명시적인 workflow를 먼저 만든다.
+이 방식은 과한 Clean Architecture나 Microservice 구조를 피하면서도,
+백엔드와의 API 계약과 AI 내부 책임을 명확히 나누기 위한 선택이다.
 
 ## 기본 의존성 방향
 
-AI 내부의 권장 의존성 방향은 다음과 같다.
+AI 내부의 의존성은 위에서 아래로만 흐른다.
 
 ```text
 api
--> schemas
--> workflow
--> services
--> boundaries/adapters
+  └─ workflow
+       └─ services
+            └─ boundaries/adapters
+                   └─ external systems (LLM, LlamaIndex)
+
+schemas ← 모든 계층이 공유. 루트 레벨에 위치.
 ```
 
-의존성은 위에서 아래로만 흐르게 한다.
-`external systems`는 코드 폴더가 아니라 boundaries/adapters 바깥에 있는 실제 연동 대상이므로, 초기 폴더 구조에는 포함하지 않는다.
-service가 FastAPI route를 직접 호출하거나, LLM SDK와 VectorDB client를 직접 호출하지 않도록 한다.
+- `service`가 FastAPI route를 직접 호출하지 않는다.
+- `service`가 LLM SDK나 LlamaIndex를 직접 호출하지 않는다. `boundaries`를 통해서만 접근한다.
+- `workflow`가 `usedSources`, `needsAdminReview`, `riskTags`를 결정한다. `service`는 하지 않는다.
 
-전체 시스템 관점에서는 다음 경계를 지킨다.
+## 계층별 역할
 
-```text
-Frontend -> Backend -> AI
-AI -> Backend
-Backend -> Frontend
-Backend -> 고객 응답 전송 채널
-AI -> AI-managed Markdown policy documents / LlamaIndex retriever
-```
-
-AI는 Frontend 또는 고객 응답 전송 채널을 직접 호출하지 않는다.
-
-## api
+### api
 
 역할:
-
-- 백엔드에서 들어온 요청 수신
-- request/response schema 검증 연결
-- workflow 호출
-- 결과 반환
+- 백엔드 요청 수신
+- `CustomerInquiry` Pydantic 검증
+- `process_inquiry` (workflow) 호출
+- `InquiryProcessResult` 반환
 
 포함하지 않는 것:
-
+- 판단 로직
+- LLM 호출
 - 프론트엔드 직접 연결
-- 고객 응답 직접 전송
-- 백엔드 DB 직접 소유
-- 복잡한 판단 로직
 
-## workflow
+### workflow
 
-역할:
-
-- 백엔드가 넘긴 문의 처리 순서 관리
-- 분기 처리
-- service 호출 순서 결정
-- 최종 결과 조립
-
-초기 workflow는 다음 흐름을 가진다.
+orchestrator 역할. `process_inquiry` 함수가 아래 3개 service를 순서대로 호출하고 결과를 집약한다.
 
 ```text
-1. 요청 검증
-2. 백엔드 제공 문의 원문과 운영 데이터 맥락 확인
-3. AI 측 Markdown 정책 문서를 LlamaIndex로 검색
-4. 운영 데이터와 정책 근거 기반 답변 초안 생성
-5. 관리자 검토 필요 여부 판단
-6. 답변 초안과 최소 메타데이터 반환
+1. CustomerInquiry Pydantic 검증
+2. classify_inquiry     : LLM으로 문의 유형 분류
+   └ 기타 문의          → status: needs_review, reason: [Complex]
+3. decide_auto_reply    : context + classification 기반 자동응답 판단
+   ├ available=true     → 템플릿에 context 값 삽입 (RAG 생략)
+   └ available=false    → generate_rag_draft 호출
+4. generate_rag_draft   : LlamaIndex로 정책 문서 검색
+   └ usedSources 빈 배열 → status: needs_review, reason: [No_Context]
+5. usedSources / riskTags / needsAdminReview 집약
+6. InquiryProcessResult 반환
 ```
 
-## services
+함수 시그니처:
 
-역할:
+```python
+def process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
+    """단일 진입점. 아래 3개 함수를 순서대로 호출하고 통합 응답을 반환한다."""
+```
 
-- 답변 초안 생성
-- AI 측 정책 문서 검색 결과 참조
-- 관리자 검토 정책 판단
-- 위험 태그 판단
-- 판단 이유 생성
+### services
 
-포함하지 않는 것:
+각 함수는 단일 책임을 가진다. 호출 경계를 엄격히 지킨다.
 
-- FastAPI route 직접 호출
-- 프론트엔드 직접 호출
-- 고객 응답 직접 전송
-- 백엔드 DB 직접 소유
-- VectorDB client 직접 호출
+| 함수 | 허용 외부 호출 | 금지 |
+| --- | --- | --- |
+| `classify_inquiry` | LLM만 | RAG, DB 조회 |
+| `decide_auto_reply` | context + classification, LLM 선택적 | DB 조회 |
+| `generate_rag_draft` | LlamaIndex 검색만 | LLM 직접 호출, DB 조회 |
 
-## boundaries/adapters
+함수 시그니처:
 
-역할:
+```python
+def classify_inquiry(inquiry: CustomerInquiry) -> ClassificationResult:
+    ...
 
-- 외부 시스템 연결부를 감싼다.
-- 외부 시스템이 바뀌어도 service 로직 변경을 줄인다.
+def decide_auto_reply(
+    inquiry: CustomerInquiry,
+    classification: ClassificationResult,
+) -> AutoReplyDecision:
+    ...
 
-후보:
+def generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer | None:
+    """근거 부족 시 None 반환."""
+```
 
-- LLM client
-- LlamaIndex 기반 정책 문서 retriever
-- prompt store
-- backend-provided context adapter
-- policy document loader
+### boundaries/adapters
 
-## 초기 폴더 구조 후보
+외부 시스템 연결부를 감싼다. 외부 시스템이 바뀌어도 service 로직 변경을 최소화한다.
 
-아래 구조는 구현 시작 시점의 후보이며, 초기 세팅 단계에서는 코드 파일을 만들지 않는다.
+| 파일 | 역할 |
+| --- | --- |
+| `llm_client.py` | LLM SDK 연결 |
+| `policy_retriever.py` | LlamaIndex 기반 정책 문서 검색 |
+| `document_loader.py` | Markdown 정책 문서 로딩 |
+
+### schemas
+
+모든 계층이 공유하는 Pydantic 데이터 계약. 루트 레벨에 위치하며 구현 단계 이전에 이미 확정됨.
+
+| 파일 | 클래스 | 역할 |
+| --- | --- | --- |
+| `base.py` | `BaseHsaModel` | camelCase 자동 변환 기반 클래스 |
+| `inquiry.py` | `CustomerInquiry` | 백엔드 요청 입력 (api 계층 수신) |
+| `classification.py` | `ClassificationResult` | `classify_inquiry` 반환 타입 |
+| `auto_reply.py` | `AutoReplyDecision` | `decide_auto_reply` 반환 타입 |
+| `rag_draft.py` | `RagDraftAnswer` | `generate_rag_draft` 반환 타입 |
+| `process_result.py` | `InquiryProcessResult` | 백엔드 최종 응답 (api 계층 반환) |
+
+## 폴더 구조
+
+아래 구조는 구현 시작 시점의 기준이다. `schemas/`는 초기 세팅 단계에서 이미 생성됨.
 
 ```text
-AI/
-  app/
-    main.py
-    api/
-      routes.py
-    schemas/
-      inquiry.py
-      answer.py
-    workflow/
-      answer_workflow.py
-    services/
-      answer_generator.py
-      review_policy.py
-    boundaries/
-      llm_client.py
-      policy_loader.py
-      document_retriever.py
-    docs/
-      policies/
-    tests/
-    evals/
+hsa-AI/
+├── schemas/                     ← 루트 레벨. 이미 생성됨
+│   ├── base.py
+│   ├── inquiry.py
+│   ├── classification.py
+│   ├── auto_reply.py
+│   ├── rag_draft.py
+│   └── process_result.py
+├── app/
+│   ├── main.py
+│   ├── api/
+│   │   └── routes.py            ← POST /api/v1/inquiries/process
+│   ├── workflow/
+│   │   └── process_inquiry.py   ← orchestrator
+│   ├── services/
+│   │   ├── classify_inquiry.py
+│   │   ├── decide_auto_reply.py
+│   │   └── generate_rag_draft.py
+│   ├── boundaries/
+│   │   ├── llm_client.py
+│   │   ├── policy_retriever.py
+│   │   └── document_loader.py
+│   └── docs/
+│       └── policies/            ← AI 파트 관리 Markdown 정책 문서
+│           ├── shipping.md
+│           ├── exchange-refund.md
+│           ├── product.md
+│           └── response-tone.md
+├── tests/                       ← 루트 레벨
+├── evals/                       ← 루트 레벨 (python evals/main.py)
+│   ├── tasks.json
+│   ├── runner.py
+│   ├── grader.py
+│   ├── report.py
+│   └── main.py
+├── harness/
+│   ├── AGENTS.md
+│   ├── CLAUDE.md
+│   └── CODEX.md
+└── docs/
 ```
