@@ -9,7 +9,7 @@ router = APIRouter()
     response_model=InquiryProcessResult,
     
     # BaseHsaModel의 alias_generator=to_camel이 동작하려면 필수
-    # 미설정 시 응답이 sanke_case로 나와 API 계약 위반
+    # 미설정 시 응답이 snake_case로 나와 API 계약 위반
     response_model_by_alias=True,
 )
 

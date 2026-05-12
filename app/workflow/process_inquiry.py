@@ -3,6 +3,7 @@ from schemas import CustomerInquiry, InquiryProcessResult
 from schemas.process_result import InquiryProcessData, ProcessStatus
 
 
+# FastAPI 엔드포인트 테스팅 및 API 계약 검증을 위해 process_inquiry 함수의 임시 stub 구현.
 def process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
     return InquiryProcessResult(
         status=ProcessStatus.SUCCESS,

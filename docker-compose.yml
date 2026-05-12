@@ -2,7 +2,7 @@ services:
   api:
     build: .
     ports:
-      - "8000:8000"
+      - "${PORT:-8000}:${PORT:-8000}"
     volumes:
       # 소스 코드 마운트: 파일 수정 시 컨테이너에 즉시 반영
       - .:/workspace

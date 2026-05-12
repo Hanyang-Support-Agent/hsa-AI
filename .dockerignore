@@ -33,3 +33,9 @@ storage/
 # 빌드 결과물
 build/
 dist/
+
+# 개발/문서 전용 디렉터리 (프로덕션 이미지 불필요)
+tests/
+evals/
+docs/
+harness/
