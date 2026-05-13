@@ -10,7 +10,7 @@ def client() -> TestClient:
 
 
 @pytest.fixture
-def minimal_inquiry_payload() -> dict:
+def minimal_inquiry_payload() -> dict[str, object]:
     return {
         "inquiryId": "inq_test_001",
         "message": "제 주문 언제 오나요?",
@@ -18,7 +18,7 @@ def minimal_inquiry_payload() -> dict:
 
 
 @pytest.fixture
-def inquiry_with_context_payload() -> dict:
+def inquiry_with_context_payload() -> dict[str, object]:
     return {
         "inquiryId": "inq_test_002",
         "message": "제 주문 언제 오나요?",

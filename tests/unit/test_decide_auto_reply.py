@@ -7,7 +7,10 @@ from schemas.classification import ClassificationResult, InquiryCategory
 from schemas.inquiry import Channel, CustomerInquiry
 
 
-def _make_inquiry(message: str, context: dict | None = None) -> CustomerInquiry:
+def _make_inquiry(
+    message: str,
+    context: dict[str, object] | None = None,
+) -> CustomerInquiry:
     return CustomerInquiry(
         inquiry_id="inq_auto_reply_001",
         channel=Channel.KAKAO,
