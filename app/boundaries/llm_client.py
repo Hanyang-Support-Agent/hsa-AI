@@ -16,7 +16,7 @@ from pydantic_ai import Agent
 OutputModelT = TypeVar("OutputModelT", bound=BaseModel)
 
 DEFAULT_MODEL_ENV = "HSA_LLM_MODEL"
-DEFAULT_MODEL = "openai:gpt-4o-mini"
+DEFAULT_MODEL = "openai:gpt-5-nano"
 DEFAULT_SYSTEM_PROMPT = (
     "Return only data that satisfies the requested structured output schema. "
     "Do not include markdown fences or extra prose."
