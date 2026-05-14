@@ -13,7 +13,7 @@
       }
     },
     "expected": {
-      "status": "success",
+      "status": "needs_review",
       "data": {
         "inquiryId": "inq_sh_001",
         "autoReplyAvailable": true,
@@ -42,7 +42,7 @@
       }
     },
     "expected": {
-      "status": "success",
+      "status": "needs_review",
       "data": {
         "inquiryId": "inq_rf_001",
         "autoReplyAvailable": false,
@@ -69,7 +69,7 @@
       "metadata": {}
     },
     "expected": {
-      "status": "error",
+      "status": "needs_review",
       "data": null,
       "error": {
         "code": "LLM_PARSE_FAILED",
