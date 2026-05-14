@@ -116,7 +116,7 @@ def decide_auto_reply(
 
     assert context is not None  # missing_fields가 없으면 context는 존재한다.
     matched_order_count = context["matchedOrderCount"]
-    if matched_order_count != 1:
+    if int(matched_order_count) != 1:
         return AutoReplyDecision(
             available=False,
             reason="동일 고객의 주문이 여러 건이거나 단일 주문으로 특정되지 않아 관리자 검토 필요",
