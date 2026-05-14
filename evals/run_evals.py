@@ -8,15 +8,6 @@ API_ENDPOINT = "http://localhost:8000/api/v1/inquiries/process"
 TEST_DATA_PATH = "evals/tasks.json"
 
 def load_test_cases(file_path: str) -> List[Dict[str, Any]]:
-    """
-    지정된 경로에서 테스트 케이스 파일(JSON)을 로드합니다.
-    
-    Args:
-        file_path (str): 테스트 데이터 파일의 상대 또는 절대 경로.
-        
-    Returns:
-        List[Dict]: 로드된 테스트 케이스 리스트.
-    """
     try:
         with open(file_path, "r", encoding="utf-8") as f:
             return json.load(f)
@@ -25,10 +16,6 @@ def load_test_cases(file_path: str) -> List[Dict[str, Any]]:
         return []
 
 def run_evaluation():
-    """
-    hsa-AI API 엔드포인트에 대한 자동화된 품질 검증을 수행합니다.
-    각 테스트 케이스의 응답 규격 및 기대 결과(Expected Status)를 비교 분석합니다.
-    """
     tasks = load_test_cases(TEST_DATA_PATH)
     if not tasks:
         return
@@ -41,41 +28,49 @@ def run_evaluation():
 
     for task in tasks:
         task_id = task.get("task_id", "N/A")
-        description = task.get("description", "No description")
-        
         print(f"\n[TestCase] {task_id}")
-        print(f"Description: {description}")
-
-        # API Request Execution
+        
+        # 1. 초기화 (에러 발생 시 undefined 방지)
+        actual_response = None 
+        
         try:
+            # 2. API 요청 (타임아웃 30초로 넉넉히 설정)
             start_time = time.time()
-            response = requests.post(API_ENDPOINT, json=task["input"], timeout=10)
+            response = requests.post(API_ENDPOINT, json=task["input"], timeout=30)
             latency = round(time.time() - start_time, 2)
             
+            # 3. JSON 파싱
             actual_response = response.json()
+            
+            # 4. 검증 로직
             expected_status = task["expected"].get("status")
             actual_status = actual_response.get("status")
 
-            # Validation Logic
             is_passed = (actual_status == expected_status)
-            result_label = "✅ PASS" if is_passed else "❌ FAIL (Status Mismatch)"
+            result_label = "✅ PASS" if is_passed else f"❌ FAIL (Expected: {expected_status}, Actual: {actual_status})"
             
             if is_passed: summary["pass"] += 1 
             else: summary["fail"] += 1
 
             print(f"Result: {result_label} | Latency: {latency}s")
             
-            # AI Output Monitoring
-            draft = actual_response.get("data", {}).get("draftAnswer", "None")
-            print(f"AI Response: {draft[:60]}...")
+            # 5. 데이터 안전하게 추출 (None 체크 강화)
+            data_part = actual_response.get("data")
+            if data_part:
+                draft = data_part.get("draftAnswer") or "N/A (Needs Review)"
+                reason = data_part.get("reason", "No reason provided")
+                print(f"AI Response: {draft[:60]}...")
+                print(f"Reason: {reason}")
+            else:
+                error_info = actual_response.get("error") or {}
+                print(f"⚠️ Server Info: {error_info.get('message', 'No data field in response')}")
 
         except Exception as e:
-            print(f"❌ Critical Error: Failed to connect or parse response. ({e})")
+            print(f"❌ Critical Error: {str(e)}")
             summary["fail"] += 1
 
         print("-" * 60)
 
-    # Final Summary Report
     print(f"\n🏁 Evaluation Completed.")
     print(f"📊 Summary: PASS {summary['pass']} / FAIL {summary['fail']}")
     print("=" * 60)
