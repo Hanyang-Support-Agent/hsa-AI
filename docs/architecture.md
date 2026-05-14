@@ -139,7 +139,7 @@ def generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer | None:
 
 ```text
 hsa-AI/
-├── schemas/                     
+├── schemas/
 │   ├── base.py
 │   ├── inquiry.py
 │   ├── classification.py
