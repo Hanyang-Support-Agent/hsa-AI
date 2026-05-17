@@ -52,8 +52,6 @@ jobs:
     name: Push & Merge & Deploy
     runs-on: ubuntu-latest
 
-    # [유지] write 권한은 실제로 필요한 이 job에서만 선언
-    # ci.yml 워크플로 레벨을 read로 낮춘 것과 대응
     permissions:
       id-token: write      # OIDC로 AWS 임시 자격증명을 받기 위해 필요
       contents: write      # squash merge를 위해 필요
@@ -88,30 +86,47 @@ jobs:
         uses: aws-actions/amazon-ecr-login@v2
 
       # ----------------------------------------------------------
-      # 4. Docker 빌드 & ECR 푸시 (merge 전)
+      # 4. QEMU 설정
+      #    amd64 runner에서 arm64 이미지를 빌드하기 위해 필요
+      #    없으면 Dockerfile RUN 명령어에서 exec /bin/sh: exec format error 발생
+      # ----------------------------------------------------------
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: linux/arm64
+
+      # ----------------------------------------------------------
+      # 4-1. Docker Buildx 설정
+      #      멀티 플랫폼 빌드를 위해 Buildx 드라이버 활성화
+      #      docker build 대신 docker buildx build 사용
+      # ----------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ----------------------------------------------------------
+      # 5. Docker 빌드 & ECR 푸시 (merge 전)
       #    이미지 태그: head_sha 앞 12자 (PR 브랜치 커밋 기준)
       #    이 단계까지 실패해도 main은 아직 이전 커밋 상태 → 코드/배포 일치
       #
-      #    [수정] ${head_sha::12} → ${head_sha:0:12}
-      #    bash 슬라이싱 문법: ${변수:시작인덱스:길이}
-      #    ::12 는 유효하지 않은 문법으로 빈 문자열 또는 오류 발생
+      #    docker buildx build --push: 빌드와 푸시를 한 번에 처리
+      #    기존 docker build + docker push 두 단계를 통합
       # ----------------------------------------------------------
       - name: Build & Push to ECR
         id: build
         run: |
           SHORT_SHA="${head_sha:0:12}"
           IMAGE_URI="${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${SHORT_SHA}"
-          # ECS Task Definition이 arm64(Graviton)이므로 플랫폼 명시
-          # GitHub Actions runner는 amd64이므로 크로스 컴파일 발생
-          # 명시하지 않으면 amd64 이미지가 빌드되어 ECS에서 exec format error 발생
-          docker build --platform linux/arm64 -t "$IMAGE_URI" .
-          docker push "$IMAGE_URI"
+          docker buildx build \
+            --platform linux/arm64 \
+            --push \
+            -t "$IMAGE_URI" \
+            .
           echo "image_uri=$IMAGE_URI" >> "$GITHUB_OUTPUT"
         env:
           head_sha: ${{ inputs.head_sha }}
 
       # ----------------------------------------------------------
-      # 5. squash merge
+      # 6. squash merge
       #    ECR push 성공 이후 merge → 이 시점부터 main에 새 코드가 들어옴
       #    이후 실패 지점은 ECS deploy 하나뿐
       #    ECS deploy 실패 시 Circuit Breaker가 자동 롤백
@@ -125,7 +140,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ----------------------------------------------------------
-      # 6. 현재 운영 중인 Task Definition 가져오기
+      # 7. 현재 운영 중인 Task Definition 가져오기
       #    등록된 최신 revision을 기준으로 이미지만 교체
       # ----------------------------------------------------------
       - name: Download current task definition
@@ -136,7 +151,7 @@ jobs:
             > task-definition.json
 
       # ----------------------------------------------------------
-      # 7. Task Definition에 새 이미지 URI 반영
+      # 8. Task Definition에 새 이미지 URI 반영
       # ----------------------------------------------------------
       - name: Render new task definition
         id: render
@@ -147,7 +162,7 @@ jobs:
           image: ${{ steps.build.outputs.image_uri }}
 
       # ----------------------------------------------------------
-      # 8. ECS 서비스 업데이트 (롤링 배포)
+      # 9. ECS 서비스 업데이트 (롤링 배포)
       #    - 새 Task가 헬스체크 통과 전까지 기존 Task 유지 → 무중단 배포
       #    - 헬스체크 실패 시 ECS Circuit Breaker가 자동으로 이전 revision 롤백
       #    - wait-for-service-stability: true → 배포 완료까지 워크플로 대기
