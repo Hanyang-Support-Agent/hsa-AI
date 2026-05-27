@@ -35,7 +35,7 @@ def fake_process_inquiry(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_health_check(client: TestClient) -> None:
     res = client.get("/health")
     assert res.status_code == 200
-    assert res.json()["status"] == "OK"
+    assert res.json()["status"] == "AI server is healthy"
 
 
 def test_process_returns_200(

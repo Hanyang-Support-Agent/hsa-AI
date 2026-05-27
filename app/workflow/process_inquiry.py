@@ -9,6 +9,7 @@
 
 from pydantic import ValidationError
 
+from app.boundaries import rds_reader
 from app.services.classify_inquiry import classify_inquiry
 from app.services.decide_auto_reply import decide_auto_reply
 from app.services.generate_rag_draft import generate_rag_draft
@@ -82,6 +83,11 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             error=None,
         )
 
+    # RDS 조회 — classify 이후 무조건 실행 (stub: 현재 None 반환)
+    db_context = rds_reader.lookup_order_context(inquiry.inquiry_id)
+    if db_context is not None:
+        inquiry = inquiry.model_copy(update={"context": db_context})
+
     auto_reply = decide_auto_reply(inquiry, classification)
     if auto_reply.available:
         return InquiryProcessResult(
@@ -98,17 +104,18 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             error=None,
         )
 
-    rag_draft = generate_rag_draft(inquiry)
-    if rag_draft is None:
+    rag_result = generate_rag_draft(inquiry)
+    if rag_result is None:
         return InquiryProcessResult(
             status=ProcessStatus.NEEDS_REVIEW,
             data=_needs_review_data(
                 inquiry,
-                reason="[No_Context] 관련 근거 문서 없음 또는 RAG 초안 생성 미구현",
+                reason=f"[No_Context] 관련 근거 문서 없음 (검색어: {inquiry.message[:50]})",
             ),
             error=None,
         )
 
+    rag_draft, rag_sources = rag_result
     return InquiryProcessResult(
         status=ProcessStatus.SUCCESS,
         data=InquiryProcessData(
@@ -118,7 +125,7 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             needs_admin_review=True,
             reason=rag_draft.reason,
             risk_tags=[],
-            used_sources=[],
+            used_sources=rag_sources,
         ),
         error=None,
     )
