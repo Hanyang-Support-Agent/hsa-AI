@@ -1,5 +1,9 @@
+import os
+
 import pytest
 from fastapi.testclient import TestClient
+
+os.environ.setdefault("HSA_TEST_MODE", "true")
 
 from app.main import app
 
