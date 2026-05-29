@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any
 
 from app.boundaries import document_loader
 from app.boundaries.llm_client import generate_structured
@@ -13,20 +13,17 @@ from schemas.rag_draft import RagDraftAnswer
 RELEVANCE_THRESHOLD = float(os.getenv("RAG_RELEVANCE_THRESHOLD", "0.4"))
 
 
-class RetrievalResult(NamedTuple):
-    draft_answer: str
-    reason: str
-    used_sources: list[str]
-
-
 def retrieve_and_generate(
     query: str,
     inquiry_context: dict[str, Any] | None,
-) -> RetrievalResult | None:
+) -> RagDraftAnswer | None:
     """
     정책 문서 검색 후 Pydantic AI로 답변 합성.
     threshold 미달 시 None 반환 → process_inquiry가 needs_review 처리.
+    used_sources는 반환된 RagDraftAnswer에 포함된다.
     """
+    inquiry_context = inquiry_context or {}
+
     index = document_loader.get_index()
     nodes = index.as_retriever(similarity_top_k=3).retrieve(query)
     relevant = [n for n in nodes if (n.score or 0.0) >= RELEVANCE_THRESHOLD]
@@ -36,19 +33,13 @@ def retrieve_and_generate(
     policy_sources = list(
         dict.fromkeys(_node_to_source_id(n) for n in relevant)  # 중복 제거, 순서 유지
     )
-    context_sources = (
-        [f"context.{k}" for k in inquiry_context.keys()] if inquiry_context else []
-    )
+    context_sources = [f"context.{k}" for k in inquiry_context.keys()]
     used_sources = context_sources + policy_sources
 
     context_text = "\n\n---\n\n".join(n.get_content() for n in relevant)
     rag_answer = _generate_answer(query, context_text, inquiry_context)
 
-    return RetrievalResult(
-        draft_answer=rag_answer.draft_answer,
-        reason=rag_answer.reason,
-        used_sources=used_sources,
-    )
+    return rag_answer.model_copy(update={"used_sources": used_sources})
 
 
 def _node_to_source_id(node: Any) -> str:
@@ -60,7 +51,7 @@ def _node_to_source_id(node: Any) -> str:
 def _generate_answer(
     query: str,
     policy_context: str,
-    inquiry_context: dict[str, Any] | None,
+    inquiry_context: dict[str, Any],
 ) -> RagDraftAnswer:
     return generate_structured(
         _build_prompt(query, policy_context, inquiry_context), RagDraftAnswer
@@ -70,12 +61,10 @@ def _generate_answer(
 def _build_prompt(
     query: str,
     policy_context: str,
-    inquiry_context: dict[str, Any] | None,
+    inquiry_context: dict[str, Any],
 ) -> str:
     ctx_str = (
-        "\n".join(f"- {k}: {v}" for k, v in inquiry_context.items())
-        if inquiry_context
-        else "(없음)"
+        "\n".join(f"- {k}: {v}" for k, v in inquiry_context.items()) or "(없음)"
     )
     return f"""
             다음 정책 문서와 운영 데이터를 바탕으로 고객 문의에 대한 답변 초안을 작성하세요.

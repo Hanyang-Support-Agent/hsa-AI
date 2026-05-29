@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 
 from app.api.routes import router as api_router
 from app.boundaries import document_loader
@@ -9,7 +10,10 @@ from app.boundaries import document_loader
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
-    document_loader.build_index()
+    # build_index는 파일 I/O + OpenAI Embedding API 동기 호출을 포함한다.
+    # run_in_threadpool로 이벤트 루프 블로킹을 방지한다.
+    # ECS 배포 시 healthCheck.startPeriod를 인덱스 빌드 예상 시간 이상으로 설정해야 한다.
+    await run_in_threadpool(document_loader.build_index)
     yield
 
 
