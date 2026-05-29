@@ -250,13 +250,14 @@ def test_process_inquiry_aggregates_rag_draft_success(monkeypatch: pytest.Monkey
 
     def fake_generate_rag_draft(
         inquiry: CustomerInquiry,
-    ) -> tuple:
+    ) -> "RagDraftAnswer":
         from schemas.rag_draft import RagDraftAnswer
 
         return RagDraftAnswer(
             draft_answer="수령일로부터 7일 이내 반품 가능합니다.",
             reason="policy.exchange-refund 문서 기준",
-        ), ["policy.exchange-refund"]
+            used_sources=["policy.exchange-refund"],
+        )
 
     monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
     monkeypatch.setattr(process_module, "decide_auto_reply", fake_decide_auto_reply)

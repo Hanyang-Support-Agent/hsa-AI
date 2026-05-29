@@ -26,3 +26,7 @@ class RagDraftAnswer(BaseHsaModel):
 
     draft_answer: str = Field(..., min_length=1, description="답변 초안 본문")
     reason: str = Field(..., min_length=1, description="초안 작성 근거 요약")
+    used_sources: list[str] = Field(
+        default_factory=list,
+        description="답변 생성에 사용한 출처 목록. process_inquiry가 InquiryProcessData로 집약한다.",
+    )
