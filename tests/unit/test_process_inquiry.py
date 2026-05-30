@@ -227,3 +227,47 @@ def test_process_inquiry_maps_rag_external_failure_to_error(
     assert result.error is not None
     assert result.error.code == "EXTERNAL_SYSTEM_ERROR"
     assert "처리 단계 실패" in result.error.message
+
+
+def test_process_inquiry_aggregates_rag_draft_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    inquiry = _make_inquiry("반품 가능 기간이 얼마나 되나요?")
+
+    def fake_classify_inquiry(inquiry: CustomerInquiry) -> ClassificationResult:
+        return ClassificationResult(
+            category=InquiryCategory.REFUND_EXCHANGE,
+            confidence=0.9,
+            reason="교환/환불 문의",
+        )
+
+    def fake_decide_auto_reply(
+        inquiry: CustomerInquiry,
+        classification: ClassificationResult,
+    ) -> AutoReplyDecision:
+        return AutoReplyDecision(
+            available=False,
+            reason="환불/교환은 정책 해석 필요",
+        )
+
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> "RagDraftAnswer":
+        from schemas.rag_draft import RagDraftAnswer
+
+        return RagDraftAnswer(
+            draft_answer="수령일로부터 7일 이내 반품 가능합니다.",
+            reason="policy.exchange-refund 문서 기준",
+            used_sources=["policy.exchange-refund"],
+        )
+
+    monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
+    monkeypatch.setattr(process_module, "decide_auto_reply", fake_decide_auto_reply)
+    monkeypatch.setattr(process_module, "generate_rag_draft", fake_generate_rag_draft)
+
+    result = process_module.process_inquiry(inquiry)
+
+    assert result.status == ProcessStatus.SUCCESS
+    assert result.data is not None
+    assert result.data.auto_reply_available is False
+    assert result.data.draft_answer == "수령일로부터 7일 이내 반품 가능합니다."
+    assert result.data.needs_admin_review is True
+    assert result.data.used_sources == ["policy.exchange-refund"]

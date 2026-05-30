@@ -7,8 +7,11 @@
 - 실제 LLM/RAG 실패 처리와 usedSources 확정은 후속 구현에서 보강한다.
 """
 
+import httpx
 from pydantic import ValidationError
+from pydantic_ai.exceptions import UnexpectedModelBehavior
 
+from app.boundaries import rds_reader
 from app.services.classify_inquiry import classify_inquiry
 from app.services.decide_auto_reply import decide_auto_reply
 from app.services.generate_rag_draft import generate_rag_draft
@@ -50,13 +53,16 @@ def _error_result(code: str, message: str) -> InquiryProcessResult:
 
 def _map_exception_to_error(exc: Exception) -> InquiryProcessResult:
     """LLM/RAG/service 실패를 API 계약의 error 응답으로 변환한다."""
-    if isinstance(exc, TimeoutError):
+    # httpx.TimeoutException: pydantic_ai가 provider 호출 시 발생하는 실제 타임아웃.
+    # Python 내장 TimeoutError와 상속 관계가 없으므로 별도로 명시한다.
+    if isinstance(exc, (TimeoutError, httpx.TimeoutException)):
         return _error_result(
             code="LLM_TIMEOUT",
             message="LLM 호출 시간 초과",
         )
 
-    if isinstance(exc, (ValidationError, ValueError)):
+    # UnexpectedModelBehavior: pydantic_ai가 structured output 검증 재시도를 소진한 뒤 raise.
+    if isinstance(exc, (ValidationError, ValueError, UnexpectedModelBehavior)):
         return _error_result(
             code="LLM_PARSE_FAILED",
             message=f"LLM 출력 파싱 또는 Pydantic 검증 실패: {exc}",
@@ -82,6 +88,11 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             error=None,
         )
 
+    # RDS 조회 — classify 이후 무조건 실행 (stub: 현재 None 반환)
+    db_context = rds_reader.lookup_order_context(inquiry.inquiry_id)
+    if db_context is not None:
+        inquiry = inquiry.model_copy(update={"context": db_context})
+
     auto_reply = decide_auto_reply(inquiry, classification)
     if auto_reply.available:
         return InquiryProcessResult(
@@ -104,7 +115,7 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             status=ProcessStatus.NEEDS_REVIEW,
             data=_needs_review_data(
                 inquiry,
-                reason="[No_Context] 관련 근거 문서 없음 또는 RAG 초안 생성 미구현",
+                reason=f"[No_Context] 관련 근거 문서 없음 (검색어: {inquiry.message[:50]})",
             ),
             error=None,
         )
@@ -118,7 +129,7 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             needs_admin_review=True,
             reason=rag_draft.reason,
             risk_tags=[],
-            used_sources=[],
+            used_sources=rag_draft.used_sources,
         ),
         error=None,
     )
