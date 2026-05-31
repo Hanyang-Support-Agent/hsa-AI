@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from schemas.auto_reply import AutoReplyDecision
 from schemas.classification import ClassificationResult, InquiryCategory
 from schemas.inquiry import CustomerInquiry
+from schemas.process_result import RiskTag
 
 _AUTO_REPLY_TEMPLATE = (
     "현재 고객님의 주문은 {orderStatus} 상태이며, 예상 도착일은 {expectedDeliveryDate}입니다.\n"
@@ -83,6 +84,7 @@ def decide_auto_reply(
         return AutoReplyDecision(
             available=False,
             reason="환불/교환 가능 여부는 정책 해석과 예외 판단이 필요하므로 자동응답 불가",
+            risk_tags=[RiskTag.REFUND],
         )
 
     if classification.category == InquiryCategory.PRODUCT:
@@ -95,6 +97,7 @@ def decide_auto_reply(
         return AutoReplyDecision(
             available=False,
             reason="상품 하자/파손 등 클레임 또는 고객 피해 가능성이 있어 관리자 검토 필요",
+            risk_tags=[RiskTag.CLAIM],
         )
 
     if _contains_any(inquiry.message, _POLICY_OR_EXCEPTION_KEYWORDS):
@@ -116,7 +119,7 @@ def decide_auto_reply(
 
     assert context is not None  # missing_fields가 없으면 context는 존재한다.
     matched_order_count = context["matchedOrderCount"]
-    if int(matched_order_count) != 1:
+    if matched_order_count != 1:
         return AutoReplyDecision(
             available=False,
             reason="동일 고객의 주문이 여러 건이거나 단일 주문으로 특정되지 않아 관리자 검토 필요",
