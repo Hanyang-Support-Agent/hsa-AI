@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 from app.boundaries import rds_reader
+from app.boundaries.llm_client import STRICT_OUTPUT_FORMAT
 from app.services.classify_inquiry import classify_inquiry
 from app.services.decide_auto_reply import decide_auto_reply
 from app.services.generate_rag_draft import generate_rag_draft
@@ -20,7 +21,7 @@ from schemas import CustomerInquiry, InquiryProcessResult
 from schemas.classification import InquiryCategory
 from schemas.process_result import InquiryProcessData, ProcessError, ProcessStatus
 
-MAX_ORCHESTRATOR_RETRIES = int(os.getenv("MAX_ORCHESTRATOR_RETRIES", "1"))
+MAX_ORCHESTRATOR_RETRIES = int(os.getenv("MAX_ORCHESTRATOR_RETRIES", "2"))
 
 _AUTO_REPLY_USED_SOURCES = [
     "context.orderStatus",
@@ -155,11 +156,15 @@ def process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
     timeout 등 즉시 실패 예외는 재시도 없이 반환한다.
     """
     last_result: InquiryProcessResult | None = None
-    for _ in range(MAX_ORCHESTRATOR_RETRIES + 1):
+    for attempt in range(MAX_ORCHESTRATOR_RETRIES + 1):
+        # AGENTS.md: 1차 재시도는 동일 프롬프트, 2차 재시도부터 형식 강제 지시.
+        token = STRICT_OUTPUT_FORMAT.set(attempt > 1)
         try:
             return _process_inquiry(inquiry)
         except (ValidationError, ValueError, UnexpectedModelBehavior) as exc:
             last_result = _map_exception_to_error(exc)
         except Exception as exc:
             return _map_exception_to_error(exc)
+        finally:
+            STRICT_OUTPUT_FORMAT.reset(token)
     return last_result  # type: ignore[return-value]

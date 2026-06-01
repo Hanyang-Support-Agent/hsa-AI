@@ -10,6 +10,7 @@ import pytest
 
 import app.workflow.process_inquiry as process_module
 from app.boundaries import rds_reader as rds_reader_module
+from app.boundaries.llm_client import STRICT_OUTPUT_FORMAT
 from schemas.auto_reply import AutoReplyDecision
 from schemas.classification import ClassificationResult, InquiryCategory
 from schemas.inquiry import Channel, CustomerInquiry
@@ -457,6 +458,31 @@ def test_orchestrator_returns_error_after_max_retries(
     assert result.status == ProcessStatus.ERROR
     assert result.error is not None
     assert result.error.code == "LLM_PARSE_FAILED"
+
+
+def test_orchestrator_enables_strict_format_on_second_retry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AGENTS.md: 1차 재시도는 동일 프롬프트, 2차 재시도부터 형식 강제 지시."""
+    inquiry = _make_inquiry("배송 상태 알려주세요.")
+    observed: list[bool] = []
+
+    def flaky_classify_inquiry(inquiry: CustomerInquiry) -> ClassificationResult:
+        observed.append(STRICT_OUTPUT_FORMAT.get())
+        if len(observed) < 3:
+            raise ValueError(f"{len(observed)}차 parse 실패")
+        return ClassificationResult(
+            category=InquiryCategory.ETC,
+            confidence=0.8,
+            reason="복합 문의",
+        )
+
+    monkeypatch.setattr(process_module, "classify_inquiry", flaky_classify_inquiry)
+
+    process_module.process_inquiry(inquiry)
+
+    assert observed == [False, False, True]
+    assert STRICT_OUTPUT_FORMAT.get() is False
 
 
 def test_rds_not_called_for_product_inquiry(monkeypatch: pytest.MonkeyPatch) -> None:
