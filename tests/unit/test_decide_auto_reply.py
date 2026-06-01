@@ -2,6 +2,8 @@
 decide_auto_reply service 단위 테스트.
 """
 
+import pytest
+
 from app.services.decide_auto_reply import decide_auto_reply
 from schemas.classification import ClassificationResult, InquiryCategory
 from schemas.inquiry import Channel, CustomerInquiry
@@ -82,6 +84,32 @@ def test_delivery_inquiry_with_multiple_matched_orders_requires_review() -> None
     assert result.available is False
     assert result.filled_answer is None
     assert "주문이 여러 건" in result.reason
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [True, 1.0, 1.9, "1", "1.0", None],
+    ids=["bool_true", "float_1.0", "float_1.9", "str_1", "str_1.0", "none"],
+)
+def test_delivery_inquiry_with_non_int_matched_order_count_rejects_auto_reply(
+    bad_value: object,
+) -> None:
+    """matchedOrderCount는 int 타입만 허용. bool/float/str은 자동응답 차단."""
+    inquiry = _make_inquiry(
+        "제 주문 언제 도착하나요?",
+        context={
+            "orderStatus": "배송 중",
+            "expectedDeliveryDate": "05월 15일",
+            "trackingNumber": "1234-5678",
+            "matchedOrderCount": bad_value,
+        },
+    )
+    classification = _make_classification(InquiryCategory.DELIVERY)
+
+    result = decide_auto_reply(inquiry, classification)
+
+    assert result.available is False
+    assert "matchedOrderCount" in result.reason
 
 
 def test_refund_exchange_inquiry_is_not_auto_reply_available() -> None:

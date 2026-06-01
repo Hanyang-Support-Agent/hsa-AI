@@ -119,6 +119,12 @@ def decide_auto_reply(
 
     assert context is not None  # missing_fields가 없으면 context는 존재한다.
     matched_order_count = context["matchedOrderCount"]
+    # 백엔드 DB 타입 확정 전까지 엄격 검증. bool은 int 하위 타입이지만 허용 불가.
+    if type(matched_order_count) is not int:
+        return AutoReplyDecision(
+            available=False,
+            reason="matchedOrderCount 타입이 int가 아니어서 자동응답 불가",
+        )
     if matched_order_count != 1:
         return AutoReplyDecision(
             available=False,
