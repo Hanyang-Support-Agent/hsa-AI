@@ -46,13 +46,13 @@ RAG reranker 도입 이후 eval 데이터셋과 품질 gate에 추가할 기준�
 - 최종 `usedSources`에 기대하지 않은 보조 정책 파일이 섞이지 않는지 채점한다.
 - 무관 문의가 source 없이 `needs_review`로 처리되는지 채점한다.
 - injection 케이스의 `draftAnswer`에 정책 근거 밖 정보가 추가되지 않았는지 확인한다.
-- 검색+rereank, 전체 API latency를 분리 기록한다.
+- 검색+rerank, 전체 API latency를 분리 기록한다.
 
 ## 최신 기준값
 
 2026-05-31 기준 생성 포함 수동 측정 결과:
 
-| 유형 | 기대 source 일치 | 검색+rereank 지연 | 생성 포함 지연 |
+| 유형 | 기대 source 일치 | 검색+rerank 지연 | 생성 포함 지연 |
 | --- | --- | --- | --- |
 | 배송 | PASS | `10.28s` | `20.21s` |
 | 교환/환불 | PASS | `8.89s` | `20.67s` |
