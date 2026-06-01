@@ -1,3 +1,4 @@
+import functools
 import os
 import textwrap
 from pathlib import Path
@@ -58,13 +59,17 @@ def retrieve_relevant_nodes(query: str) -> list[Any]:
     return [node for node in nodes if (node.score or 0.0) >= RELEVANCE_THRESHOLD]
 
 
-def rerank_nodes(query: str, nodes: list[Any]) -> list[Any]:
-    """LLM reranker로 검색 후보를 재정렬하고 상위 노드만 반환한다."""
-    reranker = LLMRerank(
+@functools.lru_cache(maxsize=1)
+def _get_reranker() -> LLMRerank:
+    return LLMRerank(
         llm=OpenAI(model=RAG_RERANK_MODEL),
         top_n=RAG_RERANK_TOP_N,
     )
-    return reranker.postprocess_nodes(nodes, query_str=query)
+
+
+def rerank_nodes(query: str, nodes: list[Any]) -> list[Any]:
+    """LLM reranker로 검색 후보를 재정렬하고 상위 노드만 반환한다."""
+    return _get_reranker().postprocess_nodes(nodes, query_str=query)
 
 
 def select_primary_policy_nodes(nodes: list[Any]) -> list[Any]:

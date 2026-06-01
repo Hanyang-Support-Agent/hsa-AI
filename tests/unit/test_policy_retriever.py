@@ -8,6 +8,13 @@ from app.boundaries import policy_retriever
 from schemas.rag_draft import RagDraftAnswer
 
 
+@pytest.fixture(autouse=True)
+def _clear_reranker_cache() -> Any:
+    policy_retriever._get_reranker.cache_clear()
+    yield
+    policy_retriever._get_reranker.cache_clear()
+
+
 class FakeNode:
     def __init__(self, source: str, score: float, content: str = "정책 내용") -> None:
         self.metadata = {"file_name": f"{source}.md"}
