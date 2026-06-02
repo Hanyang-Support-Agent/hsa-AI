@@ -1,5 +1,9 @@
 # RAG 구현 계획
 
+> 문서 상태: archived baseline. 아래 상세 코드는 초기 구현 당시 기록이다.
+> 구현 상태: 기본 RAG와 LLM reranker 도입 완료. 최신 검색 품질 설정과 담당자 인계 기준은
+> `rag-quality-handoff.md`, `workflow-handoff.md`, `quality-handoff.md`를 따른다.
+
 상태: decision
 작성일: 2026-05-18
 참조: architecture.md, api-contract-v2.md, framework-decision.md, policy-rag-strategy.md
@@ -407,7 +411,7 @@ storage/ 파일: ['default__vector_store.json', 'docstore.json', ...]
 
 ### Step 4 — `app/boundaries/policy_retriever.py`
 
-역할: 인덱스 검색 → threshold 필터 → Pydantic AI 답변 합성 → source 추출.
+역할: 인덱스 검색 → threshold 필터 → LLM reranker → Pydantic AI 답변 합성 → source 추출.
 `generate_rag_draft` service의 유일한 외부 의존성.
 
 `inquiry.context`를 프롬프트에 포함하는 이유 (`policy-rag-strategy.md`):

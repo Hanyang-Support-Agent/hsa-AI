@@ -4,20 +4,24 @@
 현재 범위:
 - 백엔드 DB/RAG 실제 연동 전까지 service 결과를 InquiryProcessResult로 집약한다.
 - classify_inquiry -> decide_auto_reply -> generate_rag_draft 순서만 고정한다.
-- 실제 LLM/RAG 실패 처리와 usedSources 확정은 후속 구현에서 보강한다.
 """
+
+import os
 
 import httpx
 from pydantic import ValidationError
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
 from app.boundaries import rds_reader
+from app.boundaries.llm_client import STRICT_OUTPUT_FORMAT
 from app.services.classify_inquiry import classify_inquiry
 from app.services.decide_auto_reply import decide_auto_reply
 from app.services.generate_rag_draft import generate_rag_draft
 from schemas import CustomerInquiry, InquiryProcessResult
 from schemas.classification import InquiryCategory
 from schemas.process_result import InquiryProcessData, ProcessError, ProcessStatus
+
+MAX_ORCHESTRATOR_RETRIES = int(os.getenv("MAX_ORCHESTRATOR_RETRIES", "2"))
 
 _AUTO_REPLY_USED_SOURCES = [
     "context.orderStatus",
@@ -65,12 +69,12 @@ def _map_exception_to_error(exc: Exception) -> InquiryProcessResult:
     if isinstance(exc, (ValidationError, ValueError, UnexpectedModelBehavior)):
         return _error_result(
             code="LLM_PARSE_FAILED",
-            message=f"LLM 출력 파싱 또는 Pydantic 검증 실패: {exc}",
+            message="LLM 출력 파싱 또는 Pydantic 검증 실패",
         )
 
     return _error_result(
         code="EXTERNAL_SYSTEM_ERROR",
-        message=f"외부 시스템 또는 처리 단계 실패: {exc}",
+        message="외부 시스템 또는 처리 단계 실패",
     )
 
 
@@ -88,13 +92,16 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             error=None,
         )
 
-    # RDS 조회 — classify 이후 무조건 실행 (stub: 현재 None 반환)
-    db_context = rds_reader.lookup_order_context(inquiry.inquiry_id)
-    if db_context is not None:
-        inquiry = inquiry.model_copy(update={"context": db_context})
+    # RDS 조회 — DELIVERY 분류일 때만 실행 (stub: 현재 None 반환)
+    if classification.category == InquiryCategory.DELIVERY:
+        db_context = rds_reader.lookup_order_context(inquiry.inquiry_id)
+        if db_context is not None:
+            inquiry = inquiry.model_copy(update={"context": db_context})
 
     auto_reply = decide_auto_reply(inquiry, classification)
     if auto_reply.available:
+        ctx = inquiry.context or {}
+        used_sources = [s for s in _AUTO_REPLY_USED_SOURCES if s.removeprefix("context.") in ctx]
         return InquiryProcessResult(
             status=ProcessStatus.SUCCESS,
             data=InquiryProcessData(
@@ -104,19 +111,25 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
                 needs_admin_review=False,
                 reason=auto_reply.reason,
                 risk_tags=[],
-                used_sources=_AUTO_REPLY_USED_SOURCES,
+                used_sources=used_sources,
             ),
             error=None,
         )
 
     rag_draft = generate_rag_draft(inquiry)
+    risk_tags = auto_reply.risk_tags
+    needs_admin_review = True  # RAG 초안은 항상 관리자 검토. risk_tags 존재 시 더욱이 필요
+
     if rag_draft is None:
         return InquiryProcessResult(
             status=ProcessStatus.NEEDS_REVIEW,
             data=_needs_review_data(
                 inquiry,
-                reason=f"[No_Context] 관련 근거 문서 없음 (검색어: {inquiry.message[:50]})",
-            ),
+                reason=(
+                    f"{auto_reply.reason} / "
+                    f"[No_Context] 관련 근거 문서 없음 (검색어: {inquiry.message[:50]})"
+                ),
+            ).model_copy(update={"risk_tags": risk_tags}),
             error=None,
         )
 
@@ -126,9 +139,9 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             inquiry_id=inquiry.inquiry_id,
             auto_reply_available=False,
             draft_answer=rag_draft.draft_answer,
-            needs_admin_review=True,
-            reason=rag_draft.reason,
-            risk_tags=[],
+            needs_admin_review=needs_admin_review,
+            reason=f"{auto_reply.reason} / {rag_draft.reason}",
+            risk_tags=risk_tags,
             used_sources=rag_draft.used_sources,
         ),
         error=None,
@@ -136,8 +149,22 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
 
 
 def process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
-    """고객 문의를 분류하고 자동응답/RAG 초안 결과를 통합 응답으로 집약한다."""
-    try:
-        return _process_inquiry(inquiry)
-    except Exception as exc:
-        return _map_exception_to_error(exc)
+    """고객 문의를 분류하고 자동응답/RAG 초안 결과를 통합 응답으로 집약한다.
+
+    parse 실패(ValidationError, ValueError, UnexpectedModelBehavior)는
+    AGENTS.md 재시도 정책에 따라 최대 MAX_ORCHESTRATOR_RETRIES회 재시도한다.
+    timeout 등 즉시 실패 예외는 재시도 없이 반환한다.
+    """
+    last_result: InquiryProcessResult | None = None
+    for attempt in range(MAX_ORCHESTRATOR_RETRIES + 1):
+        # AGENTS.md: 1차 재시도는 동일 프롬프트, 2차 재시도부터 형식 강제 지시.
+        token = STRICT_OUTPUT_FORMAT.set(attempt > 1)
+        try:
+            return _process_inquiry(inquiry)
+        except (ValidationError, ValueError, UnexpectedModelBehavior) as exc:
+            last_result = _map_exception_to_error(exc)
+        except Exception as exc:
+            return _map_exception_to_error(exc)
+        finally:
+            STRICT_OUTPUT_FORMAT.reset(token)
+    return last_result  # type: ignore[return-value]
