@@ -48,9 +48,15 @@ def print_report(report: GradeReport) -> bool:
     print("\n📊 지표별 점수")
     print("-" * 60)
     for m in report.metrics:
-        if m.score is None:
+        if m.skipped:
+            score_str = "측정 불가 (API 응답에 미포함) — threshold_passed 계산 제외"
+            status = "⏭️ "
+        elif m.score is None:
             score_str = "측정 대상 없음"
             status = "⏭️ "
+        elif m.name == "p95 latency":
+            score_str = f"{m.score:.2f}s  (임계값: < {m.threshold:.0f}s)"
+            status = "✅" if m.passed else "❌"
         else:
             score_str = f"{m.score * 100:.1f}%  (임계값: {m.threshold * 100:.0f}%)"
             status = "✅" if m.passed else "❌"
@@ -58,7 +64,7 @@ def print_report(report: GradeReport) -> bool:
 
     # 최종 요약
     print("\n" + "=" * 60)
-    print(f"🏁 Evaluation Completed.")
+    print("🏁 Evaluation Completed.")
     print(f"   PASS {report.pass_count} / FAIL {report.fail_count} / TOTAL {report.total}")
 
     if report.threshold_passed:

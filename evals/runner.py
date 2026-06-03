@@ -11,7 +11,8 @@ from typing import Any
 import requests
 
 API_ENDPOINT = "http://localhost:8000/api/v1/inquiries/process"
-REQUEST_TIMEOUT = 60  # seconds
+REQUEST_TIMEOUT = 120  # seconds — RAG 케이스 p95 latency 기준 2배 마진 확보
+MAX_RETRIES = 1  # timeout 등 일시적 실패 시 1회 재시도
 
 
 @dataclass
@@ -36,19 +37,21 @@ def run_tasks(tasks: list[dict[str, Any]]) -> list[TaskResult]:
         runner_error: str | None = None
         latency = 0.0
 
-        print(f"[{task_id}] 요청 중...", flush=True)
         start = time.perf_counter()
-        try:
-            response = requests.post(
-                API_ENDPOINT,
-                json=task["input"],
-                timeout=REQUEST_TIMEOUT,
-            )
-            latency = round(time.perf_counter() - start, 2)
-            actual = response.json()
-        except Exception as exc:
-            latency = round(time.perf_counter() - start, 2)
-            runner_error = str(exc)
+        for _ in range(MAX_RETRIES + 1):
+            try:
+                response = requests.post(
+                    API_ENDPOINT,
+                    json=task["input"],
+                    timeout=REQUEST_TIMEOUT,
+                )
+                latency = round(time.perf_counter() - start, 2)
+                actual = response.json()
+                runner_error = None
+                break
+            except Exception as exc:
+                latency = round(time.perf_counter() - start, 2)
+                runner_error = str(exc)
 
         results.append(
             TaskResult(

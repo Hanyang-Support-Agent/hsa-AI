@@ -58,20 +58,53 @@
     }
   },
   {
-    "task_id": "ERROR_01",
-    "description": "잘못된 형식의 입력은 LLM이 [Complex]로 분류해 needs_review로 처리됨을 검증",
+    "task_id": "AUTO_REPLY_02",
+    "description": "결제 완료 + 단일 주문 매칭 시 자동응답 가능 여부 검증 (autoReplyAvailable=true 편향 보완)",
     "input": {
-      "inquiryId": "inq_err_001",
+      "inquiryId": "inq_sh_002",
       "channel": "kakao",
-      "message": "{\"invalid_json\": true, [MALFORMED_DATA]...}",
+      "message": "제 주문 배송 상태 확인하고 싶어요.",
       "context": {
-        "corrupted_stream": true
+        "orderStatus": "상품 준비 중",
+        "expectedDeliveryDate": "2026-06-10",
+        "trackingNumber": "TRK99887766",
+        "matchedOrderCount": 1
+      }
+    },
+    "expected": {
+      "status": "success",
+      "data": {
+        "inquiryId": "inq_sh_002",
+        "autoReplyAvailable": true,
+        "needsAdminReview": false,
+        "riskTags": [],
+        "usedSources": [
+          "context.orderStatus",
+          "context.expectedDeliveryDate",
+          "context.trackingNumber"
+        ]
+      },
+      "error": null
+    }
+  },
+  {
+    "task_id": "DECIDE_01",
+    "description": "matchedOrderCount가 int가 아닌 경우(결정론적) decide_auto_reply가 자동응답을 차단하는지 검증",
+    "input": {
+      "inquiryId": "inq_dec_001",
+      "channel": "kakao",
+      "message": "제 주문 배송 언제 와요?",
+      "context": {
+        "orderStatus": "배송 중",
+        "expectedDeliveryDate": "2026-06-05",
+        "trackingNumber": "TRK11112222",
+        "matchedOrderCount": "abc"
       }
     },
     "expected": {
       "status": "needs_review",
       "data": {
-        "inquiryId": "inq_err_001",
+        "inquiryId": "inq_dec_001",
         "autoReplyAvailable": false,
         "needsAdminReview": true,
         "riskTags": [],
