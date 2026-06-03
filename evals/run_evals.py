@@ -1,3 +1,7 @@
+# ⚠️  이 파일은 runner.py / grader.py / report.py / main.py 분리로 대체됩니다.
+#     실행은 `python evals/main.py`를 사용하세요.
+#     히스토리 보존 목적으로 삭제하지 않습니다.
+
 import json
 import requests
 import time
@@ -67,7 +71,7 @@ def run_evaluation():
         try:
             # 1. 실제 API 요청 및 응답 시간 계산 (정상화 완료)
             start_time = time.time()
-            response = requests.post(API_ENDPOINT, json=task["input"], timeout=30)
+            response = requests.post(API_ENDPOINT, json=task["input"], timeout=60)
             latency = round(time.time() - start_time, 2)
             actual_response = response.json()
             
