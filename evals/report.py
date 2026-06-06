@@ -48,12 +48,9 @@ def print_report(report: GradeReport) -> bool:
     print("\n📊 지표별 점수")
     print("-" * 60)
     for m in report.metrics:
-        if m.skipped:
-            score_str = "측정 불가 (API 응답에 미포함) — threshold_passed 계산 제외"
-            status = "⏭️ "
-        elif m.score is None:
-            score_str = "측정 대상 없음"
-            status = "⏭️ "
+        if m.score is None:
+            score_str = f"측정 불가 — {m.note}" if m.note else "측정 대상 없음"
+            status = "❌" if not m.passed else "⏭️ "
         elif m.name == "p95 latency":
             score_str = f"{m.score:.2f}s  (임계값: < {m.threshold:.0f}s)"
             status = "✅" if m.passed else "❌"
@@ -68,10 +65,13 @@ def print_report(report: GradeReport) -> bool:
     print(f"   PASS {report.pass_count} / FAIL {report.fail_count} / TOTAL {report.total}")
 
     if report.threshold_passed:
-        print("   ✅ 모든 임계값 통과 — PR merge 가능")
+        print("   ✅ 모든 지표 통과, 실패 케이스 없음 — PR merge 가능")
     else:
-        failed = [m.name for m in report.metrics if not m.passed]
-        print(f"   ❌ 임계값 미달 지표: {', '.join(failed)}")
+        failed_metrics = [m.name for m in report.metrics if not m.passed]
+        if failed_metrics:
+            print(f"   ❌ 미통과 지표: {', '.join(failed_metrics)}")
+        if report.fail_count > 0:
+            print(f"   ❌ 실패 케이스 {report.fail_count}개 — AGENTS.md: 실패 태스크 1개라도 있으면 PR 금지")
         print("   PR merge 차단 대상입니다.")
 
     print("=" * 60)

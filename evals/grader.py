@@ -1,16 +1,19 @@
 """채점과 AGENTS.md 임계값 강제를 담당하는 grader.
 
 TaskResult 목록을 받아 케이스별 pass/fail과 지표별 집계를 계산한다.
-임계값 미달 시 GradeReport.threshold_passed = False를 반환한다.
+
+AGENTS.md PR 통과 조건:
+  - 4개 지표 모두 목표치 이상
+  - 실패 태스크가 1개라도 있으면 PR 금지
 
 AGENTS.md 기준 임계값:
-  - Pydantic 검증 통과율  ≥ 95%  — 응답 수신 케이스 중 schema 필수 필드 보유율
+  - Pydantic 검증 통과율  ≥ 95%  — api-contract 필수 필드 전체 보유율
   - 자동응답 분기 정확도  ≥ 85%
   - RAG 근거 일치율       ≥ 80%
   - p95 latency          < 30s  (quality-handoff gate)
 
-분류 정확도(≥ 80%)는 tasks.json에 expected_category 골든 라벨 추가 후 측정한다.
-현재 API 응답에 분류 결과가 포함되지 않아 측정 불가 — threshold_passed 계산에서 제외.
+분류 정확도(≥ 80%)는 현재 API 응답에 분류 결과가 포함되지 않아 측정 불가.
+측정 불가 = 미충족 상태로 처리해 PR 통과 조건에서 블로킹한다.
 """
 
 from dataclasses import dataclass, field
@@ -26,8 +29,13 @@ THRESHOLDS: dict[str, float] = {
     "p95_latency_seconds": 30.0,
 }
 
-_REQUIRED_RESPONSE_FIELDS = {"status"}
-_REQUIRED_DATA_FIELDS = {"autoReplyAvailable", "needsAdminReview", "riskTags", "usedSources"}
+# api-contract-v2.md 기준 필수 필드
+_REQUIRED_TOP_FIELDS = {"status", "data", "error"}
+_REQUIRED_DATA_FIELDS = {
+    "inquiryId", "autoReplyAvailable", "needsAdminReview",
+    "reason", "riskTags", "usedSources",
+}
+_REQUIRED_ERROR_FIELDS = {"code", "message"}
 
 
 @dataclass
@@ -46,14 +54,14 @@ class MetricResult:
     score: float | None  # 측정 대상 케이스가 없으면 None
     threshold: float
     passed: bool
-    skipped: bool = False  # API가 해당 정보를 노출하지 않아 측정 불가한 경우
+    note: str = ""  # 측정 불가 등 부가 설명
 
 
 @dataclass
 class GradeReport:
     cases: list[CaseGrade]
     metrics: list[MetricResult]
-    threshold_passed: bool  # 모든 임계값 통과 여부 (skipped 제외)
+    threshold_passed: bool  # 지표 임계값 + 케이스 전원 통과 여부
     total: int = field(init=False)
     pass_count: int = field(init=False)
     fail_count: int = field(init=False)
@@ -120,7 +128,7 @@ def _grade_case(result: TaskResult) -> CaseGrade:
                     )
 
     # error 필드 비교
-    expected_error = expected.get("error")
+    expected_error = (expected.get("error") or {})
     if expected_error:
         actual_error = (actual.get("error") or {})
         if actual_error.get("code") != expected_error.get("code"):
@@ -148,6 +156,18 @@ def _grade_case(result: TaskResult) -> CaseGrade:
     )
 
 
+def _is_schema_valid(actual: dict[str, Any] | None) -> bool:
+    """api-contract-v2.md 기준 필수 필드를 모두 보유하는지 검사한다."""
+    if actual is None:
+        return False
+    if not _REQUIRED_TOP_FIELDS.issubset(actual.keys()):
+        return False
+    status = actual.get("status")
+    if status == "error":
+        return _REQUIRED_ERROR_FIELDS.issubset((actual.get("error") or {}).keys())
+    return _REQUIRED_DATA_FIELDS.issubset((actual.get("data") or {}).keys())
+
+
 def _compute_metrics(
     cases: list[CaseGrade],
     results: list[TaskResult],
@@ -156,18 +176,11 @@ def _compute_metrics(
     metrics: list[MetricResult] = []
 
     # 1. Pydantic 검증 통과율
-    # 응답을 수신한 케이스 중 api-contract 필수 필드(status, data/error)를 모두 보유한 비율.
-    # runner_error 케이스는 네트워크 문제로 제외 — Pydantic 검증과 무관.
+    # 응답 수신 케이스 중 api-contract 필수 필드 전체 보유율.
+    # runner_error 케이스는 네트워크 문제로 제외.
     received = [c for c in cases if c.runner_error is None and c.actual is not None]
     if received:
-        schema_valid = sum(
-            1 for c in received
-            if _REQUIRED_RESPONSE_FIELDS.issubset((c.actual or {}).keys())
-            and (
-                (c.actual or {}).get("status") == "error"
-                or _REQUIRED_DATA_FIELDS.issubset(((c.actual or {}).get("data") or {}).keys())
-            )
-        )
+        schema_valid = sum(1 for c in received if _is_schema_valid(c.actual))
         pydantic_score: float | None = schema_valid / len(received)
     else:
         pydantic_score = None
@@ -254,24 +267,31 @@ def _compute_metrics(
         ))
 
     # 5. 분류 정확도 — 현재 API 응답에 분류 결과 미포함, 측정 불가
-    # threshold_passed 계산에서 제외 (skipped=True).
+    # 측정 불가 = 미충족으로 처리해 PR 통과를 블로킹한다.
+    # 해소 방법: API 응답에 inquiryType 추가 또는 classify_inquiry 단위 eval 별도 구현.
     metrics.append(MetricResult(
         name="분류 정확도",
         score=None,
         threshold=0.80,
-        passed=True,
-        skipped=True,
+        passed=False,
+        note="API 응답에 분류 결과 미포함 — inquiryType 노출 또는 단위 eval 추가 필요",
     ))
 
     return metrics
 
 
 def grade_results(results: list[TaskResult]) -> GradeReport:
-    """TaskResult 목록 전체를 채점하고 GradeReport를 반환한다."""
+    """TaskResult 목록 전체를 채점하고 GradeReport를 반환한다.
+
+    AGENTS.md PR 통과 조건:
+    - 4개 지표 모두 목표치 이상
+    - 실패 태스크가 1개라도 있으면 PR 금지
+    """
     cases = [_grade_case(r) for r in results]
     metrics = _compute_metrics(cases, results)
-    # skipped 지표는 threshold_passed 계산에서 제외
-    threshold_passed = all(m.passed for m in metrics if not m.skipped)
+    fail_count = sum(1 for c in cases if not c.passed)
+    metrics_passed = all(m.passed for m in metrics)
+    threshold_passed = metrics_passed and fail_count == 0
 
     return GradeReport(
         cases=cases,
