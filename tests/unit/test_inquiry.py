@@ -20,8 +20,8 @@ def test_channel_accepts_any_case(raw: str) -> None:
 @pytest.mark.parametrize(
     "raw,expected",
     [
-        ("EMAIL", Channel.EMAIL),
-        ("Instagram", Channel.INSTAGRAM),
+        ("WEB", Channel.WEB),
+        ("Mail", Channel.MAIL),
     ],
 )
 def test_channel_other_enums_case_insensitive(raw: str, expected: Channel) -> None:

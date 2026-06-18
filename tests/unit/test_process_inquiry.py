@@ -32,12 +32,12 @@ def _make_inquiry(
 
 def test_process_inquiry_aggregates_auto_reply_success(monkeypatch: pytest.MonkeyPatch) -> None:
     inquiry = _make_inquiry(
-        "제 주문 언제 도착하나요?",
+        "제 주문 어디까지 왔나요?",
         context={
-            "orderStatus": "배송 중",
-            "expectedDeliveryDate": "05월 15일",
+            "deliveryStatus": "IN_TRANSIT",
+            "carrier": "CJ대한통운",
             "trackingNumber": "1234-5678",
-            "matchedOrderCount": 1,
+            "currentLocation": "옥천HUB",
         },
     )
 
@@ -77,9 +77,10 @@ def test_process_inquiry_aggregates_auto_reply_success(monkeypatch: pytest.Monke
     assert result.data.reason == "DB 조회 결과가 명확함"
     assert result.data.risk_tags == []
     assert result.data.used_sources == [
-        "context.orderStatus",
-        "context.expectedDeliveryDate",
+        "context.deliveryStatus",
+        "context.carrier",
         "context.trackingNumber",
+        "context.currentLocation",
     ]
 
 

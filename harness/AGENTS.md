@@ -66,9 +66,10 @@ AI가 하지 않는 일:
 - 복합 문의를 억지로 세부 분류하지 않는다. → `기타 문의` 처리.
 - 스키마 필드 삭제 또는 타입 변경 시 반드시 `!BREAKING CHANGE` 커밋으로 명시한다.
 - 자동응답을 LLM이 자유 문장으로 생성하지 않는다. → 반드시 아래 템플릿에 context값을 삽입하는 방식으로만 처리한다.
+- 즉시 자동응답은 **배송 중(`deliveryStatus=IN_TRANSIT`) 하드 사실에만** 한정한다. 예상 도착일("언제 와요?")은 정책 지식이므로 RAG 초안으로 처리한다. (api-contract-v2.md 0.3 결정)
 
 ```
-현재 고객님의 주문은 {orderStatus} 상태이며, 예상 도착일은 {expectedDeliveryDate}입니다.
+현재 고객님의 주문은 {carrier}를 통해 배송 중이며, 현재 위치는 {currentLocation}입니다.
 송장번호는 {trackingNumber}입니다.
 ```
 

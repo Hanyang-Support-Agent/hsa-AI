@@ -91,7 +91,7 @@ AI가 문의를 분류하고 자동응답 가능 여부를 판단하며, 필요 
 | --- | --- | --- | --- |
 | `inquiryId` | 백엔드에 저장된 문의 고유 ID | 필수 | Backend |
 | `message` | 백엔드가 저장한 고객 문의 원문. 최대 2,000자 | 필수 | Backend |
-| `channel` | 유입 채널. `"email"` \| `"kakao"` \| `"instagram"` | 선택 | Backend |
+| `channel` | 유입 채널. `"kakao"` \| `"web"` \| `"mail"` (백엔드 `ChannelType` 정렬, 대문자 enum 수신 시 소문자 정규화) | 선택 | Backend |
 | `context` | 답변 작성에 필요한 주문, 배송, 고객 상태 등 백엔드 제공 운영 데이터 맥락 | 선택 | Backend |
 
 ## Request에 넣지 않는 것

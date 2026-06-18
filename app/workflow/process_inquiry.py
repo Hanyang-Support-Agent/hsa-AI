@@ -24,9 +24,10 @@ from schemas.process_result import InquiryProcessData, ProcessError, ProcessStat
 MAX_ORCHESTRATOR_RETRIES = int(os.getenv("MAX_ORCHESTRATOR_RETRIES", "2"))
 
 _AUTO_REPLY_USED_SOURCES = [
-    "context.orderStatus",
-    "context.expectedDeliveryDate",
+    "context.deliveryStatus",
+    "context.carrier",
     "context.trackingNumber",
+    "context.currentLocation",
 ]
 
 

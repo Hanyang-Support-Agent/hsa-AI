@@ -14,9 +14,11 @@ from schemas.base import BaseHsaModel
 
 
 class Channel(str, Enum):
-    EMAIL = "email"
+    # 백엔드 ChannelType(KAKAO/WEB/MAIL)에 정렬. (hsa-server domain/channel/ChannelType.java)
+    # 백엔드가 .name() 대문자로 보내므로 _normalize_channel가 소문자로 변환해 매칭한다.
     KAKAO = "kakao"
-    INSTAGRAM = "instagram"
+    WEB = "web"
+    MAIL = "mail"
 
 
 class CustomerInquiry(BaseHsaModel):
