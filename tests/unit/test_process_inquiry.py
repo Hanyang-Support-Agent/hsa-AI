@@ -140,8 +140,10 @@ def test_process_inquiry_routes_auto_reply_false_and_no_rag_to_needs_review(
             reason="상품 정보 문의는 RAG 초안 대상",
         )
 
-    def fake_generate_rag_draft(inquiry: CustomerInquiry) -> None:
-        return None
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
+        return None, []
 
     monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
     monkeypatch.setattr(process_module, "decide_auto_reply", fake_decide_auto_reply)
@@ -253,11 +255,14 @@ def test_process_inquiry_aggregates_rag_draft_success(monkeypatch: pytest.Monkey
 
     def fake_generate_rag_draft(
         inquiry: CustomerInquiry,
-    ) -> RagDraftAnswer:
-        return RagDraftAnswer(
-            draft_answer="수령일로부터 7일 이내 반품 가능합니다.",
-            reason="policy.exchange-refund 문서 기준",
-            used_sources=["policy.exchange-refund"],
+    ) -> tuple[RagDraftAnswer, list[RiskTag]]:
+        return (
+            RagDraftAnswer(
+                draft_answer="수령일로부터 7일 이내 반품 가능합니다.",
+                reason="policy.exchange-refund 문서 기준",
+                used_sources=["policy.exchange-refund"],
+            ),
+            [],
         )
 
     monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
@@ -294,11 +299,16 @@ def test_risk_tags_propagated_to_result(monkeypatch: pytest.MonkeyPatch) -> None
             risk_tags=[RiskTag.REFUND],
         )
 
-    def fake_generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer:
-        return RagDraftAnswer(
-            draft_answer="수령일로부터 7일 이내 반품 가능합니다.",
-            reason="policy.exchange-refund 문서 기준",
-            used_sources=["policy.exchange-refund"],
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer, list[RiskTag]]:
+        return (
+            RagDraftAnswer(
+                draft_answer="수령일로부터 7일 이내 반품 가능합니다.",
+                reason="policy.exchange-refund 문서 기준",
+                used_sources=["policy.exchange-refund"],
+            ),
+            [],
         )
 
     monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
@@ -331,11 +341,16 @@ def test_claim_risk_forces_needs_admin_review(monkeypatch: pytest.MonkeyPatch) -
             risk_tags=[RiskTag.CLAIM],
         )
 
-    def fake_generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer:
-        return RagDraftAnswer(
-            draft_answer="교환/환불 절차 안내입니다.",
-            reason="policy.exchange-refund 문서 기준",
-            used_sources=["policy.exchange-refund"],
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer, list[RiskTag]]:
+        return (
+            RagDraftAnswer(
+                draft_answer="교환/환불 절차 안내입니다.",
+                reason="policy.exchange-refund 문서 기준",
+                used_sources=["policy.exchange-refund"],
+            ),
+            [],
         )
 
     monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
@@ -347,6 +362,57 @@ def test_claim_risk_forces_needs_admin_review(monkeypatch: pytest.MonkeyPatch) -
     assert result.data is not None
     assert result.data.needs_admin_review is True
     assert result.data.risk_tags == [RiskTag.CLAIM]
+
+
+def test_policy_conflict_risk_tag_merged_from_rag_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """RAG 경로가 policy_conflict를 반환하면 riskTags에 포함되고 needsAdminReview=True.
+
+    status는 success 가능 (api-contract-v2.md 관리자 검토 테이블).
+    """
+    inquiry = _make_inquiry("반품 배송비는 누가 부담하나요?")
+
+    def fake_classify_inquiry(inquiry: CustomerInquiry) -> ClassificationResult:
+        return ClassificationResult(
+            category=InquiryCategory.REFUND_EXCHANGE,
+            confidence=0.9,
+            reason="교환/환불 문의",
+        )
+
+    def fake_decide_auto_reply(
+        inquiry: CustomerInquiry,
+        classification: ClassificationResult,
+    ) -> AutoReplyDecision:
+        return AutoReplyDecision(
+            available=False,
+            reason="환불/교환은 정책 해석 필요",
+            risk_tags=[RiskTag.REFUND],
+        )
+
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer, list[RiskTag]]:
+        return (
+            RagDraftAnswer(
+                draft_answer="배송비 부담 주체는 문서마다 다르게 안내됩니다.",
+                reason="policy.shipping / policy.exchange-refund 충돌",
+                used_sources=["policy.shipping"],
+            ),
+            [RiskTag.POLICY_CONFLICT],
+        )
+
+    monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
+    monkeypatch.setattr(process_module, "decide_auto_reply", fake_decide_auto_reply)
+    monkeypatch.setattr(process_module, "generate_rag_draft", fake_generate_rag_draft)
+
+    result = process_module.process_inquiry(inquiry)
+
+    assert result.status == ProcessStatus.SUCCESS
+    assert result.data is not None
+    assert result.data.needs_admin_review is True
+    # 자동응답 단계 REFUND + RAG 경로 POLICY_CONFLICT 병합, 순서 유지
+    assert result.data.risk_tags == [RiskTag.REFUND, RiskTag.POLICY_CONFLICT]
 
 
 def test_auto_reply_reason_preserved_in_rag_path(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -368,11 +434,16 @@ def test_auto_reply_reason_preserved_in_rag_path(monkeypatch: pytest.MonkeyPatch
             reason="자동응답 불가 이유A",
         )
 
-    def fake_generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer:
-        return RagDraftAnswer(
-            draft_answer="7일 이내 반품 가능합니다.",
-            reason="RAG 근거 이유B",
-            used_sources=["policy.exchange-refund"],
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer, list[RiskTag]]:
+        return (
+            RagDraftAnswer(
+                draft_answer="7일 이내 반품 가능합니다.",
+                reason="RAG 근거 이유B",
+                used_sources=["policy.exchange-refund"],
+            ),
+            [],
         )
 
     monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
@@ -406,8 +477,10 @@ def test_auto_reply_reason_preserved_in_no_context_path(
             reason="자동응답 불가 이유A",
         )
 
-    def fake_generate_rag_draft(inquiry: CustomerInquiry) -> None:
-        return None
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
+        return None, []
 
     monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
     monkeypatch.setattr(process_module, "decide_auto_reply", fake_decide_auto_reply)
@@ -502,8 +575,10 @@ def test_rds_not_called_for_product_inquiry(monkeypatch: pytest.MonkeyPatch) -> 
     ) -> AutoReplyDecision:
         return AutoReplyDecision(available=False, reason="RAG 대상")
 
-    def fake_generate_rag_draft(inquiry: CustomerInquiry) -> None:
-        return None
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
+        return None, []
 
     def spy_rds(inquiry_id: str) -> None:
         rds_called["called"] = True
@@ -536,8 +611,10 @@ def test_rds_not_called_for_refund_inquiry(monkeypatch: pytest.MonkeyPatch) -> N
     ) -> AutoReplyDecision:
         return AutoReplyDecision(available=False, reason="RAG 대상", risk_tags=[RiskTag.REFUND])
 
-    def fake_generate_rag_draft(inquiry: CustomerInquiry) -> None:
-        return None
+    def fake_generate_rag_draft(
+        inquiry: CustomerInquiry,
+    ) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
+        return None, []
 
     def spy_rds(inquiry_id: str) -> None:
         rds_called["called"] = True

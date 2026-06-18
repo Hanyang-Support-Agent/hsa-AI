@@ -32,4 +32,5 @@ def health_check() -> dict[str, str]:
     return {"status": "AI server is healthy"}
 
 
-app.include_router(api_router, prefix="/api/v1")
+# 엔드포인트 경로는 백엔드(AiInquiryClient) 호출 spec에 맞춘다: /api/inquiries/process
+app.include_router(api_router, prefix="/api")

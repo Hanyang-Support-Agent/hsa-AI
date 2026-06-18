@@ -64,11 +64,14 @@ def main() -> None:
         passed = expected_source in selected_sources if expected_source else not selected_sources
         status = "PASS" if passed else "FAIL"
 
+        conflict = policy_retriever._detect_policy_conflict(reranked)
+
         print(f"[{status}] {label}: {query}")
         print(f"   vector candidates : {_format_nodes(candidates) or '[]'}")
         print(f"   reranked selected : {_format_nodes(reranked) or '[]'}")
         print(f"   primary policy    : {_format_nodes(selected) or '[]'}")
         print(f"   expected source   : {expected_source or 'None'}")
+        print(f"   policy_conflict   : {conflict}")
         print(f"   retrieval latency : {retrieval_elapsed:.2f}s")
 
         if args.include_generation and selected:

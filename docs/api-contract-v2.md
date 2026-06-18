@@ -7,7 +7,7 @@
 
 | 항목 | 기존 | 수정 |
 | --- | --- | --- |
-| 엔드포인트 | `POST /api/v1/answers/draft` | `POST /api/v1/inquiries/process` |
+| 엔드포인트 | `POST /api/v1/answers/draft` | `POST /api/inquiries/process` |
 | 필드 컨벤션 | snake_case | camelCase (AGENTS.md 이중 컨벤션 준수) |
 | 응답 구조 | flat | `status / data / error` 래퍼 |
 | 응답 필드 추가 | — | `autoReplyAvailable` |
@@ -60,13 +60,14 @@ AI는 백엔드가 넘겨준 문의 내용과 백엔드 보유 데이터 맥락�
 ## Endpoint
 
 ```text
-POST /api/v1/inquiries/process
+POST /api/inquiries/process
 ```
 
 백엔드가 이미 저장한 문의와 필요한 운영 데이터 맥락을 AI에 전달하면,
 AI가 문의를 분류하고 자동응답 가능 여부를 판단하며, 필요 시 정책 문서 기반 답변 초안을 생성해 반환하는 endpoint다.
 
 > 기존 후보 URL `/api/v1/answers/draft`는 AGENTS.md 내부 규칙과 불일치하여 수정.
+> `/v1` 접두사는 백엔드(AiInquiryClient) 호출 spec(`/api/inquiries/process`)에 맞춰 제거(2026-06-17).
 > endpoint URL은 이 문서를 단일 출처로 한다.
 
 ## Request
@@ -285,6 +286,27 @@ AI 내부 구현과의 매핑 (AGENTS.md "자동응답 책임 경계" 참조):
 | `LLM_TIMEOUT` | LLM 호출 시간 초과 |
 | `LLM_PARSE_FAILED` | LLM 출력 파싱·검증 실패 (2회 재시도 후 최종 실패) |
 | `EXTERNAL_SYSTEM_ERROR` | 외부 시스템(LlamaIndex 등) 호출 실패 |
+
+## 백엔드 inquiry 도메인 정합 합의 (Phase 0.3, 2026-06-17)
+
+백엔드 `inquiry` 도메인 API spec(2026-06-17 수령)과 대조한 결과 확정한 결정.
+기본 원칙: **백엔드 spec에 AI가 맞춘다** (백엔드가 AI를 호출하는 쪽).
+
+### ① 자동응답 context 필드 — 백엔드 신규 필드 없이 정합 (확정)
+
+백엔드 context는 `orderStatus`·`deliveryStatus`·`currentLocation`·`carrier`·`productName`·`trackingNumber`·`customerId`를 제공한다. 기존 AI 자동응답이 요구하던 `expectedDeliveryDate`·`matchedOrderCount`는 **백엔드 신규 필드로 요구하지 않고, AI 측 로직을 백엔드 제공 필드에 맞춰 재설계한다.**
+
+- **자동응답(즉시 발송) = 배송 중 하드 사실만**: `deliveryStatus`가 배송 중인 경우, `carrier`·`trackingNumber`·`currentLocation`을 템플릿에 삽입해 즉시 발송한다. 영문 enum → 한글 표현 매핑은 **AI 측이** 관리하며, 백엔드 `deliveryStatus` 값에 정렬한다.
+- **예상 도착일("언제 와요?") = RAG 초안**: 배송 소요일은 AI 정책 문서 지식(`policy.shipping`, 예: "결제 후 평균 2~3일")이므로 `autoReplyAvailable: false` 검토 초안으로 처리한다(본 문서 성공 응답 예시와 일치). 별도 `expectedDeliveryDate` 필드는 두지 않는다.
+- **단일 주문 전제**: 백엔드는 inquiry당 단일 주문 context를 제공하므로, AI 측 `matchedOrderCount == 1` 안전핀은 **제거**한다. (다건 매칭 분기는 백엔드 책임)
+
+### ② riskTags 어휘 — AI 검토 트리거 축으로 유지 (확정)
+
+`riskTags`(`refund`·`claim`·`policy_conflict`)는 **AI의 관리자 검토 트리거 어휘**다. 백엔드 예시 `DELIVERY_DELAY`는 배송 상태 알림 축으로 의미가 다르며, 백엔드 status mapper는 riskTags를 소비하지 않는다(spec 7.4). → AI 어휘를 그대로 유지하고 혼용하지 않는다.
+
+### ③ category — AI 내부 enum, 응답 미노출 (확정)
+
+분류 `category`는 AI 내부 분류용 enum이며 응답 `data`에 노출하지 않는다. 백엔드 `InquiryResult.category`는 현재 소비처가 없어(`OTHER` 저장만) 노출은 추측성 확장이 된다. 백엔드가 실제 소비처(관리자 분류 필터 등)를 만들면 그때 `!BREAKING CHANGE`로 노출을 재검토한다.
 
 ## 아직 확정하지 않은 것
 

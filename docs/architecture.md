@@ -150,7 +150,7 @@ hsa-AI/
 ├── app/
 │   ├── main.py
 │   ├── api/
-│   │   └── routes.py            ← POST /api/v1/inquiries/process
+│   │   └── routes.py            ← POST /api/inquiries/process
 │   ├── workflow/
 │   │   └── process_inquiry.py   ← orchestrator
 │   ├── services/

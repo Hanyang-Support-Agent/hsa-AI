@@ -3,12 +3,14 @@ generate_rag_draft 서비스 단위 테스트.
 
 policy_retriever.retrieve_and_generate를 monkeypatch로 대체해
 generate_rag_draft 함수 자체의 동작만 검증한다.
+반환은 (RagDraftAnswer | None, list[RiskTag]) 튜플이다 (plan.md Phase 2 경로1).
 """
 
 import pytest
 
 import app.services.generate_rag_draft as rag_module
 from schemas.inquiry import Channel, CustomerInquiry
+from schemas.process_result import RiskTag
 from schemas.rag_draft import RagDraftAnswer
 
 
@@ -36,25 +38,47 @@ def _make_rag_answer(
     )
 
 
-def test_returns_none_when_retriever_finds_no_relevant_docs(
+def test_returns_none_with_empty_risk_tags_when_no_relevant_docs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(rag_module.policy_retriever, "retrieve_and_generate", lambda q, c: None)
+    monkeypatch.setattr(
+        rag_module.policy_retriever, "retrieve_and_generate", lambda q, c: (None, [])
+    )
 
-    result = rag_module.generate_rag_draft(_make_inquiry("세탁 방법이 궁금해요."))
+    draft, risk_tags = rag_module.generate_rag_draft(_make_inquiry("세탁 방법이 궁금해요."))
 
-    assert result is None
+    assert draft is None
+    assert risk_tags == []
 
 
 def test_returns_rag_answer_when_retriever_succeeds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     expected = _make_rag_answer()
-    monkeypatch.setattr(rag_module.policy_retriever, "retrieve_and_generate", lambda q, c: expected)
+    monkeypatch.setattr(
+        rag_module.policy_retriever, "retrieve_and_generate", lambda q, c: (expected, [])
+    )
 
-    result = rag_module.generate_rag_draft(_make_inquiry("배송 상태 알려주세요."))
+    draft, risk_tags = rag_module.generate_rag_draft(_make_inquiry("배송 상태 알려주세요."))
 
-    assert result is expected
+    assert draft is expected
+    assert risk_tags == []
+
+
+def test_propagates_policy_conflict_risk_tag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = _make_rag_answer()
+    monkeypatch.setattr(
+        rag_module.policy_retriever,
+        "retrieve_and_generate",
+        lambda q, c: (expected, [RiskTag.POLICY_CONFLICT]),
+    )
+
+    draft, risk_tags = rag_module.generate_rag_draft(_make_inquiry("반품 배송비 누가 내나요?"))
+
+    assert draft is expected
+    assert risk_tags == [RiskTag.POLICY_CONFLICT]
 
 
 def test_passes_message_and_context_to_retriever(
@@ -62,10 +86,10 @@ def test_passes_message_and_context_to_retriever(
 ) -> None:
     captured: dict[str, object] = {}
 
-    def fake_retrieve(query: str, context: object) -> RagDraftAnswer:
+    def fake_retrieve(query: str, context: object) -> tuple[RagDraftAnswer, list[RiskTag]]:
         captured["query"] = query
         captured["context"] = context
-        return _make_rag_answer()
+        return _make_rag_answer(), []
 
     monkeypatch.setattr(rag_module.policy_retriever, "retrieve_and_generate", fake_retrieve)
 
@@ -86,10 +110,10 @@ def test_used_sources_from_retriever_are_preserved(
     monkeypatch.setattr(
         rag_module.policy_retriever,
         "retrieve_and_generate",
-        lambda q, c: _make_rag_answer(used_sources=expected_sources),
+        lambda q, c: (_make_rag_answer(used_sources=expected_sources), []),
     )
 
-    result = rag_module.generate_rag_draft(_make_inquiry("환불 가능한가요?"))
+    draft, _ = rag_module.generate_rag_draft(_make_inquiry("환불 가능한가요?"))
 
-    assert result is not None
-    assert result.used_sources == expected_sources
+    assert draft is not None
+    assert draft.used_sources == expected_sources

@@ -10,7 +10,7 @@ from typing import Any
 
 import requests
 
-API_ENDPOINT = "http://localhost:8000/api/v1/inquiries/process"
+API_ENDPOINT = "http://localhost:8000/api/inquiries/process"
 REQUEST_TIMEOUT = 120  # seconds — RAG 케이스 p95 latency 기준 2배 마진 확보
 MAX_RETRIES = 1  # timeout 등 일시적 실패 시 1회 재시도
 
