@@ -64,7 +64,7 @@ PoC 검색 품질 개선을 위해 벡터 검색 뒤에 LlamaIndex `LLMRerank`�
 
 | 환경변수 | 기본값 | 설명 |
 | --- | --- | --- |
-| `RAG_RELEVANCE_THRESHOLD` | `0.4` | 벡터 후보 relevance threshold |
+| `RAG_RELEVANCE_THRESHOLD` | `0.40` | 벡터 후보 relevance threshold |
 | `RAG_TOP_K` | `6` | 벡터 검색 후보 수 |
 | `RAG_RERANK_TOP_N` | `3` | reranker 최종 선택 수 |
 | `RAG_RERANK_MODEL` | `gpt-5-nano` | OpenAI reranker 모델 |
