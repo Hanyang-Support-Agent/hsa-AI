@@ -24,7 +24,8 @@ class TaskResult:
     actual: dict[str, Any] | None  # 호출 실패 시 None
     latency: float  # seconds
     runner_error: str | None = field(default=None)  # 네트워크·파싱 오류 메시지
-    task: dict[str, Any] = field(default_factory=dict)  # tasks.json 원본 (forbidden_sources 등 접근용)
+    # tasks.json 원본 (forbidden_sources 등 접근용)
+    task: dict[str, Any] = field(default_factory=dict)
 
 
 def run_tasks(tasks: list[dict[str, Any]]) -> list[TaskResult]:
