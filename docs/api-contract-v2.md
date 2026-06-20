@@ -175,6 +175,18 @@ Markdown 정책 문서
 | `data` | object \| null | 처리 결과 본문. `status: "error"`일 때 `null` |
 | `error` | object \| null | 오류 정보. `status: "error"`일 때만 채워짐. 정상 응답 시 `null` |
 
+### HTTP 상태 코드 정책 (확정, 2026-06-20)
+
+**AI는 `success`/`needs_review`/`error` 모든 응답을 HTTP `200 OK`로 반환한다.** 성공·실패 분기는 오직 body의 `status` 필드로만 한다. HTTP 상태 코드로 처리 결과를 분기하지 않는다.
+
+근거 (백엔드 `hsa-server` 구현 대조):
+
+- 백엔드 `AiInquiryClient`는 `RestTemplate.postForObject`를 사용하며, **non-2xx 응답에서 예외를 던진다.** `AiInquiryProcessingService.requestSafely`는 그 예외를 잡아 body를 읽지 않고 **무조건 `EXTERNAL_SYSTEM_ERROR`로 덮어쓴다.**
+- 따라서 AI가 `error`를 5xx로 반환하면 body의 실제 `code`(예: 비재시도 `LLM_PARSE_FAILED`)가 소실되고, 백엔드가 이를 재시도 가능한 `EXTERNAL_SYSTEM_ERROR`로 오인해 **잘못된 재시도**를 한다(재시도 정책은 `AiInquiryRetryPolicy` 참조).
+- `needs_review`는 근거 부족·복합 문의 등 **정상적인 업무 결과**이지 전송 실패가 아니므로 5xx 대상이 아니다.
+
+> **5xx 전환은 협의된 v2 변경**: AI 장애를 HTTP 5xx로 노출(관측성/알람)하려면, 백엔드가 `ResponseErrorHandler`로 에러 body의 `code`를 파싱하도록 함께 변경해야 한다. AI 단독으로 코드를 바꾸지 않는다. 현재 백엔드→AI 경로는 ALB가 아니라 Cloud Map 직통이라 status code를 소비하는 인프라가 RestTemplate 외엔 없다.
+
 ### 성공 응답 예시
 
 ```json
