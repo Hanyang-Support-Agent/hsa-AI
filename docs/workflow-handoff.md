@@ -8,7 +8,9 @@ RAG reranker 도입에 따라 workflow와 배포 설정에서 반영해야 할 �
 RAG public interface는 변경되지 않았다.
 
 ```python
-def generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer | None:
+def generate_rag_draft(
+    inquiry: CustomerInquiry,
+) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
     ...
 ```
 

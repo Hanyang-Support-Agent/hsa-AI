@@ -24,9 +24,10 @@ from schemas.process_result import InquiryProcessData, ProcessError, ProcessStat
 MAX_ORCHESTRATOR_RETRIES = int(os.getenv("MAX_ORCHESTRATOR_RETRIES", "2"))
 
 _AUTO_REPLY_USED_SOURCES = [
-    "context.orderStatus",
-    "context.expectedDeliveryDate",
+    "context.deliveryStatus",
+    "context.carrier",
     "context.trackingNumber",
+    "context.currentLocation",
 ]
 
 
@@ -116,8 +117,9 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             error=None,
         )
 
-    rag_draft = generate_rag_draft(inquiry)
-    risk_tags = auto_reply.risk_tags
+    rag_draft, rag_risk_tags = generate_rag_draft(inquiry)
+    # 자동응답 단계 위험 태그 + RAG 경로 충돌 태그(policy_conflict) 병합, 순서 유지 중복 제거
+    risk_tags = list(dict.fromkeys(auto_reply.risk_tags + rag_risk_tags))
     needs_admin_review = True  # RAG 초안은 항상 관리자 검토. risk_tags 존재 시 더욱이 필요
 
     if rag_draft is None:

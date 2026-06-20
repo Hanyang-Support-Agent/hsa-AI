@@ -19,17 +19,17 @@ def lookup_order_context(inquiry_id: str) -> dict[str, Any] | None:
 
     실제 구현 예시:
         row = db.execute(
-            "SELECT order_status, tracking_number, expected_delivery_date ..."
+            "SELECT delivery_status, carrier, tracking_number, current_location ..."
             " FROM orders WHERE inquiry_id = %s",
             (inquiry_id,)
         ).fetchone()
         if not row:
             return None
         return {
-            "orderStatus": row.order_status,
+            "deliveryStatus": row.delivery_status,
+            "carrier": row.carrier,
             "trackingNumber": row.tracking_number,
-            "expectedDeliveryDate": str(row.expected_delivery_date),
-            "matchedOrderCount": 1,
+            "currentLocation": row.current_location,
         }
     """
     return None  # stub

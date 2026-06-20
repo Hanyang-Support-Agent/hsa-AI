@@ -30,7 +30,7 @@
                 │  채널 / 고객 정보 / 접수 시각  │
                 └──────────────┬──────────────┘
                                │
-                               │  POST /api/v1/inquiries/process
+                               │  POST /api/inquiries/process
                                │  { inquiryId, message }
                                ▼
                 ┌─────────────────────────────────────────────────────┐
@@ -131,7 +131,7 @@ Swagger UI에서 RAG 기능 테스트하는 방법:
 
 1. `uvicorn app.main:app --reload` 로 서버 기동
 2. 브라우저에서 `http://localhost:8000/docs` 접속
-3. `POST /api/v1/inquiries/process` 클릭 → "Try it out" 클릭
+3. `POST /api/inquiries/process` 클릭 → "Try it out" 클릭
 4. Request body 입력 후 "Execute":
 
 ```json
@@ -155,7 +155,7 @@ AI는 HTTP 동기 응답 방식으로 백엔드에 결과를 반환한다. 별�
 ```
 백엔드 서버
   │
-  │  POST /api/v1/inquiries/process
+  │  POST /api/inquiries/process
   │  Content-Type: application/json
   │  Body: { "inquiryId": "...", "message": "..." }
   │        (context 없음 — AI가 RDS에서 직접 조회)
@@ -192,7 +192,7 @@ AI FastAPI 서버 (app/api/routes.py → app/workflow/process_inquiry.py)
 
 코드 경로:
 ```
-POST /api/v1/inquiries/process
+POST /api/inquiries/process
   → app/api/routes.py: process()
   → app/workflow/process_inquiry.py: process_inquiry()
   → InquiryProcessResult (schemas/)
@@ -702,12 +702,12 @@ app = FastAPI(title="HSA AI", version="0.1.0", description="...", lifespan=lifes
 
 ```bash
 # 교환/환불 문의 (RAG 경로)
-curl -s -X POST http://localhost:8000/api/v1/inquiries/process \
+curl -s -X POST http://localhost:8000/api/inquiries/process \
   -H "Content-Type: application/json" \
   -d '{"inquiryId":"t001","message":"반품 가능 기간이 얼마나 되나요?"}' | python -m json.tool
 
 # 배송 문의 (자동응답 경로 — context 포함)
-curl -s -X POST http://localhost:8000/api/v1/inquiries/process \
+curl -s -X POST http://localhost:8000/api/inquiries/process \
   -H "Content-Type: application/json" \
   -d '{
     "inquiryId":"t002",
@@ -721,7 +721,7 @@ curl -s -X POST http://localhost:8000/api/v1/inquiries/process \
   }' | python -m json.tool
 
 # 무관한 문의 (needs_review)
-curl -s -X POST http://localhost:8000/api/v1/inquiries/process \
+curl -s -X POST http://localhost:8000/api/inquiries/process \
   -H "Content-Type: application/json" \
   -d '{"inquiryId":"t003","message":"오늘 날씨 어때요?"}' | python -m json.tool
 ```

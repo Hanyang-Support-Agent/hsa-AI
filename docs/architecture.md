@@ -107,8 +107,10 @@ def decide_auto_reply(
 ) -> AutoReplyDecision:
     ...
 
-def generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer | None:
-    """근거 부족 시 None 반환."""
+def generate_rag_draft(
+    inquiry: CustomerInquiry,
+) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
+    """근거 부족 시 (None, ...) 반환. 정책 충돌 감지 시 risk_tags에 policy_conflict 포함."""
 ```
 
 ### boundaries/adapters
@@ -150,7 +152,7 @@ hsa-AI/
 ├── app/
 │   ├── main.py
 │   ├── api/
-│   │   └── routes.py            ← POST /api/v1/inquiries/process
+│   │   └── routes.py            ← POST /api/inquiries/process
 │   ├── workflow/
 │   │   └── process_inquiry.py   ← orchestrator
 │   ├── services/

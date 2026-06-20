@@ -13,7 +13,7 @@
 
 ## 현재 구현 범위
 
-- FastAPI `POST /api/v1/inquiries/process`
+- FastAPI `POST /api/inquiries/process`
 - 문의 분류, 자동응답 판단, RAG 초안 생성 workflow
 - Markdown 정책 문서와 LlamaIndex 인덱스
 - 벡터 threshold 필터와 LLM reranker

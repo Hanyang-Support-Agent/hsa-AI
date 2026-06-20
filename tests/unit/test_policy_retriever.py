@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 
 from app.boundaries import policy_retriever
+from schemas.process_result import RiskTag
 from schemas.rag_draft import RagDraftAnswer
 
 
@@ -76,13 +77,16 @@ def test_retrieve_and_generate_returns_none_without_relevant_nodes(
         lambda query, nodes: pytest.fail("threshold 미달이면 reranker를 호출하지 않아야 한다."),
     )
 
-    assert policy_retriever.retrieve_and_generate("무관한 문의", None) is None
+    draft, risk_tags = policy_retriever.retrieve_and_generate("무관한 문의", None)
+    assert draft is None
+    assert risk_tags == []
 
 
 def test_retrieve_and_generate_returns_none_when_reranker_selects_no_nodes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _patch_index(monkeypatch, [FakeNode("shipping", 0.8)])
+    # 경합 케이스(distinct source 근소차)라 rerank가 호출되도록 한다.
+    _patch_index(monkeypatch, [FakeNode("shipping", 0.8), FakeNode("product", 0.78)])
     monkeypatch.setattr(policy_retriever, "rerank_nodes", lambda query, nodes: [])
     monkeypatch.setattr(
         policy_retriever,
@@ -90,7 +94,9 @@ def test_retrieve_and_generate_returns_none_when_reranker_selects_no_nodes(
         lambda *args: pytest.fail("reranker 결과가 없으면 답변을 생성하지 않아야 한다."),
     )
 
-    assert policy_retriever.retrieve_and_generate("배송 문의", None) is None
+    draft, risk_tags = policy_retriever.retrieve_and_generate("배송 문의", None)
+    assert draft is None
+    assert risk_tags == []
 
 
 def test_rerank_nodes_passes_model_top_n_and_query(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -144,7 +150,7 @@ def test_retrieve_and_generate_uses_reranked_sources_and_preserves_context(
 ) -> None:
     shipping_first = FakeNode("shipping", 0.9, "배송 정책 첫 번째 조각")
     shipping_second = FakeNode("shipping", 0.8, "배송 정책 두 번째 조각")
-    product = FakeNode("product", 0.7, "상품 정책")
+    product = FakeNode("product", 0.88, "상품 정책")  # 근소차 경합 → rerank 호출 경로
     _patch_index(monkeypatch, [shipping_first, product, shipping_second])
     monkeypatch.setattr(
         policy_retriever,
@@ -153,13 +159,131 @@ def test_retrieve_and_generate_uses_reranked_sources_and_preserves_context(
     )
     monkeypatch.setattr(policy_retriever, "_generate_answer", lambda *args: _fake_answer())
 
-    result = policy_retriever.retrieve_and_generate(
+    draft, risk_tags = policy_retriever.retrieve_and_generate(
         "배송 기간",
         {"orderStatus": "배송 중"},
     )
 
-    assert result is not None
-    assert result.used_sources == ["context.orderStatus", "policy.shipping"]
+    assert draft is not None
+    assert draft.used_sources == ["context.orderStatus", "policy.shipping"]
+    # 단일 정책(shipping)만 reranked → 충돌 아님
+    assert risk_tags == []
+
+
+def test_detect_policy_conflict_true_when_distinct_sources_near_tie() -> None:
+    """rank 1·2위가 다른 정책이고 score 차 < epsilon이면 충돌."""
+    nodes = [FakeNode("shipping", 9.0), FakeNode("exchange-refund", 9.0)]
+
+    assert policy_retriever._detect_policy_conflict(nodes) is True
+
+
+def test_detect_policy_conflict_false_when_same_source() -> None:
+    """rank 1·2위가 같은 정책이면 score가 같아도 충돌 아님."""
+    nodes = [FakeNode("shipping", 9.0), FakeNode("shipping", 9.0)]
+
+    assert policy_retriever._detect_policy_conflict(nodes) is False
+
+
+def test_detect_policy_conflict_false_when_score_gap_large() -> None:
+    """distinct source라도 score 차가 epsilon 이상이면 충돌 아님."""
+    nodes = [FakeNode("shipping", 9.0), FakeNode("exchange-refund", 7.0)]
+
+    assert policy_retriever._detect_policy_conflict(nodes) is False
+
+
+def test_detect_policy_conflict_false_at_exact_epsilon_boundary(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """score 차가 정확히 epsilon이면 충돌 아님 (조건은 < epsilon).
+
+    부동소수점 오차를 피하려고 이진 정확 표현이 가능한 epsilon(0.5)으로 대체한다.
+    """
+    monkeypatch.setattr(policy_retriever, "CONFLICT_SCORE_EPSILON", 0.5)
+    # 차가 정확히 epsilon(0.5) → 비충돌
+    at_boundary = [FakeNode("shipping", 1.0), FakeNode("exchange-refund", 0.5)]
+    assert policy_retriever._detect_policy_conflict(at_boundary) is False
+    # 차가 epsilon 미만(0.25 < 0.5) → 충돌
+    under_boundary = [FakeNode("shipping", 1.0), FakeNode("exchange-refund", 0.75)]
+    assert policy_retriever._detect_policy_conflict(under_boundary) is True
+
+
+def test_detect_policy_conflict_false_with_single_node() -> None:
+    assert policy_retriever._detect_policy_conflict([FakeNode("shipping", 9.0)]) is False
+
+
+def test_retrieve_and_generate_flags_policy_conflict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """충돌 감지 시 risk_tags에 policy_conflict 포함, primary 필터는 1위 정책만 남긴다."""
+    shipping = FakeNode("shipping", 9.0, "배송비 무료")
+    refund = FakeNode("exchange-refund", 9.0, "배송비 고객 부담")
+    _patch_index(monkeypatch, [shipping, refund])
+    monkeypatch.setattr(
+        policy_retriever, "rerank_nodes", lambda query, nodes: [shipping, refund]
+    )
+    monkeypatch.setattr(policy_retriever, "_generate_answer", lambda *args: _fake_answer())
+
+    draft, risk_tags = policy_retriever.retrieve_and_generate("반품 배송비 부담", None)
+
+    assert draft is not None
+    assert risk_tags == [RiskTag.POLICY_CONFLICT]
+    # primary 필터로 1위 정책(shipping)만 used_sources에 남는다
+    assert draft.used_sources == ["policy.shipping"]
+
+
+def test_single_policy_dominates_true_when_one_source() -> None:
+    """후보가 전부 같은 정책이면 압도 → rerank skip."""
+    nodes = [FakeNode("shipping", 0.53), FakeNode("shipping", 0.50)]
+    assert policy_retriever._single_policy_dominates(nodes) is True
+
+
+def test_single_policy_dominates_true_when_margin_large() -> None:
+    """rank-1이 다른 정책 최고 score보다 마진 이상 앞서면 압도 → skip."""
+    nodes = [FakeNode("exchange-refund", 0.504), FakeNode("product", 0.420)]
+    assert policy_retriever._single_policy_dominates(nodes) is True
+
+
+def test_single_policy_dominates_false_when_competitive() -> None:
+    """다른 정책과 score 차가 마진 미만이면 경합 → rerank 수행."""
+    nodes = [FakeNode("product", 0.476), FakeNode("shipping", 0.453)]
+    assert policy_retriever._single_policy_dominates(nodes) is False
+
+
+def test_single_policy_dominates_true_with_single_node() -> None:
+    assert policy_retriever._single_policy_dominates([FakeNode("shipping", 0.5)]) is True
+
+
+def test_single_policy_dominates_disabled_when_margin_not_positive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SKIP_MARGIN<=0이면 조건부 skip을 끄고 항상 rerank(False 반환)."""
+    monkeypatch.setattr(policy_retriever, "RAG_RERANK_SKIP_MARGIN", 0.0)
+    # 단일 source라도, 단일 노드라도 skip 비활성화 → 항상 rerank
+    assert policy_retriever._single_policy_dominates([FakeNode("shipping", 0.9)]) is False
+    assert policy_retriever._single_policy_dominates(
+        [FakeNode("shipping", 0.9), FakeNode("shipping", 0.1)]
+    ) is False
+
+
+def test_retrieve_and_generate_skips_rerank_when_single_policy_dominates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """단일 정책 압도 시 rerank를 호출하지 않고 벡터 순서를 그대로 쓴다."""
+    shipping_first = FakeNode("shipping", 0.53, "배송 정책 1")
+    shipping_second = FakeNode("shipping", 0.50, "배송 정책 2")
+    _patch_index(monkeypatch, [shipping_first, shipping_second])
+    monkeypatch.setattr(
+        policy_retriever,
+        "rerank_nodes",
+        lambda query, nodes: pytest.fail("단일 정책 압도 시 rerank를 호출하지 않아야 한다."),
+    )
+    monkeypatch.setattr(policy_retriever, "_generate_answer", lambda *args: _fake_answer())
+
+    draft, risk_tags = policy_retriever.retrieve_and_generate("배송 문의", None)
+
+    assert draft is not None
+    assert draft.used_sources == ["policy.shipping"]
+    assert risk_tags == []
 
 
 def test_build_prompt_marks_customer_message_as_untrusted() -> None:
