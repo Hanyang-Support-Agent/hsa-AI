@@ -12,8 +12,9 @@ AGENTS.md 기준 임계값:
   - RAG 근거 일치율       ≥ 80%
   - p95 latency          < 30s  (quality-handoff gate)
 
-분류 정확도(≥ 80%)는 현재 API 응답에 분류 결과가 포함되지 않아 측정 불가.
-측정 불가 = 미충족 상태로 처리해 PR 통과 조건에서 블로킹한다.
+분류 정확도(≥ 80%)는 category가 API 응답에 노출되지 않으므로(api-contract Phase 0.3 ③),
+classify_runner가 classify_inquiry를 in-process로 직접 호출해 수집한 예측으로 측정한다.
+예측(predictions) 미제공 시에는 측정 불가로 간주해 블로킹한다.
 """
 
 from dataclasses import dataclass, field
@@ -23,6 +24,7 @@ from runner import TaskResult
 
 # AGENTS.md 임계값
 THRESHOLDS: dict[str, float] = {
+    "classification_accuracy": 0.80,
     "pydantic_pass_rate": 0.95,
     "auto_reply_accuracy": 0.85,
     "rag_source_match_rate": 0.80,
@@ -172,6 +174,7 @@ def _is_schema_valid(actual: dict[str, Any] | None) -> bool:
 def _compute_metrics(
     cases: list[CaseGrade],
     results: list[TaskResult],
+    predictions: dict[str, str] | None = None,
 ) -> list[MetricResult]:
     """지표별 점수를 계산하고 임계값과 비교한다."""
     metrics: list[MetricResult] = []
@@ -267,29 +270,51 @@ def _compute_metrics(
             passed=True,
         ))
 
-    # 5. 분류 정확도 — 현재 API 응답에 분류 결과 미포함, 측정 불가
-    # 측정 불가 = 미충족으로 처리해 PR 통과를 블로킹한다.
-    # 해소 방법: API 응답에 inquiryType 추가 또는 classify_inquiry 단위 eval 별도 구현.
+    # 5. 분류 정확도 — classify_inquiry 직접 호출 예측(predictions)으로 채점.
+    # category는 api-contract Phase 0.3 ③에 따라 HTTP 응답에 노출되지 않으므로,
+    # classify_runner.run_classification이 in-process로 수집한 예측을 받아 측정한다.
+    # predictions 미제공 시 측정 불가로 간주해 블로킹한다(안전 기본값).
+    labeled = [r for r in results if r.task.get("expected_category")]
+    if predictions is not None and labeled:
+        correct = sum(
+            1 for r in labeled
+            if predictions.get(r.task_id) == r.task.get("expected_category")
+        )
+        cls_score: float | None = correct / len(labeled)
+        cls_passed = cls_score >= THRESHOLDS["classification_accuracy"]
+        cls_note = ""
+    else:
+        cls_score = None
+        cls_passed = False
+        cls_note = "분류 예측 미제공 — classify_runner.run_classification 필요"
     metrics.append(MetricResult(
         name="분류 정확도",
-        score=None,
-        threshold=0.80,
-        passed=False,
-        note="API 응답에 분류 결과 미포함 — inquiryType 노출 또는 단위 eval 추가 필요",
+        score=cls_score,
+        threshold=THRESHOLDS["classification_accuracy"],
+        passed=cls_passed,
+        note=cls_note,
     ))
 
     return metrics
 
 
-def grade_results(results: list[TaskResult]) -> GradeReport:
+def grade_results(
+    results: list[TaskResult],
+    predictions: dict[str, str] | None = None,
+) -> GradeReport:
     """TaskResult 목록 전체를 채점하고 GradeReport를 반환한다.
+
+    Args:
+        results: runner.run_tasks가 수집한 HTTP 응답 결과.
+        predictions: classify_runner.run_classification이 수집한
+            {task_id: 예측 category} dict. 미제공 시 분류 정확도는 블로킹된다.
 
     AGENTS.md PR 통과 조건:
     - 4개 지표 모두 목표치 이상
     - 실패 태스크가 1개라도 있으면 PR 금지
     """
     cases = [_grade_case(r) for r in results]
-    metrics = _compute_metrics(cases, results)
+    metrics = _compute_metrics(cases, results, predictions)
     fail_count = sum(1 for c in cases if not c.passed)
     metrics_passed = all(m.passed for m in metrics)
     threshold_passed = metrics_passed and fail_count == 0
