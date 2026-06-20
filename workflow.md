@@ -102,7 +102,7 @@ flowchart TD
 | `process_inquiry` | `CustomerInquiry` | `InquiryProcessResult` | 아래 3개 함수 |
 | `classify_inquiry` | `CustomerInquiry` | `ClassificationResult` | LLM만 |
 | `decide_auto_reply` | `CustomerInquiry`, `ClassificationResult` | `AutoReplyDecision` | context + LLM 선택적 |
-| `generate_rag_draft` | `CustomerInquiry` | `RagDraftAnswer \| None` | LlamaIndex만 |
+| `generate_rag_draft` | `CustomerInquiry` | `tuple[RagDraftAnswer \| None, list[RiskTag]]` | LlamaIndex만 |
 
 `usedSources`, `needsAdminReview`, `riskTags` 결정은 `process_inquiry`만 수행한다.
 

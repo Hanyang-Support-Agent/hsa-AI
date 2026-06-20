@@ -101,8 +101,11 @@ def decide_auto_reply(
 ) -> AutoReplyDecision:
     ...
 
-def generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer | None:
-    """근거 부족 시 None 반환. usedSources는 process_inquiry가 관리한다."""
+def generate_rag_draft(
+    inquiry: CustomerInquiry,
+) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
+    """근거 부족 시 (None, ...) 반환. 정책 충돌 감지 시 risk_tags에 policy_conflict 포함.
+    usedSources는 process_inquiry가 관리한다."""
 ```
 
 ### 함수 호출 경계
@@ -110,7 +113,7 @@ def generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer | None:
 - `classify_inquiry`: LLM만 호출. RAG·DB 조회 금지.
 - `decide_auto_reply`: `context`와 `classification`만 본다. LLM 호출은 선택적.
 - `generate_rag_draft`: LlamaIndex 검색만 사용. DB 조회 금지.
-- 결과를 묶고 `usedSources`/`needsAdminReview`/`riskTags`를 결정하는 일은 `process_inquiry`만 한다.
+- 결과를 묶어 최종 `usedSources`/`needsAdminReview`/`riskTags`를 확정하는 일은 `process_inquiry`만 한다. (`generate_rag_draft`는 `policy_conflict` 신호만 표면화하고, 병합·확정은 `process_inquiry`가 한다.)
 ### 자동응답 책임 경계
  
 - **AI:** 자동응답 가능 여부 판단 + 템플릿에 `context` 값 삽입까지 수행.

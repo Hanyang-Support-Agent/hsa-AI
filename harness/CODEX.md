@@ -77,8 +77,10 @@ def decide_auto_reply(
 ) -> AutoReplyDecision:
     ...
  
-# 3. RAG 초안 생성 (근거 부족 시 None 반환)
-def generate_rag_draft(inquiry: CustomerInquiry) -> RagDraftAnswer | None:
+# 3. RAG 초안 생성 (근거 부족 시 (None, ...) 반환, 정책 충돌 시 risk_tags에 policy_conflict)
+def generate_rag_draft(
+    inquiry: CustomerInquiry,
+) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
     ...
 ```
  
