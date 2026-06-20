@@ -71,7 +71,10 @@ def print_report(report: GradeReport) -> bool:
         if failed_metrics:
             print(f"   ❌ 미통과 지표: {', '.join(failed_metrics)}")
         if report.fail_count > 0:
-            print(f"   ❌ 실패 케이스 {report.fail_count}개 — AGENTS.md: 실패 태스크 1개라도 있으면 PR 금지")
+            print(
+                f"   ❌ 실패 케이스 {report.fail_count}개 — "
+                "AGENTS.md: 실패 태스크 1개라도 있으면 PR 금지"
+            )
         print("   PR merge 차단 대상입니다.")
 
     print("=" * 60)

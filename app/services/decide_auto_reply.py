@@ -151,7 +151,10 @@ def decide_auto_reply(
         status_ko = _DELIVERY_STATUS_KO.get(delivery_status, delivery_status)
         return AutoReplyDecision(
             available=False,
-            reason=f"배송 중 상태가 아니어서(현재: {status_ko}) 즉시 자동응답 불가, RAG 초안으로 전환",
+            reason=(
+                f"배송 중 상태가 아니어서(현재: {status_ko}) "
+                "즉시 자동응답 불가, RAG 초안으로 전환"
+            ),
         )
 
     filled_answer = _AUTO_REPLY_TEMPLATE.format(**_as_template_context(context))

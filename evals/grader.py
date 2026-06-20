@@ -133,7 +133,8 @@ def _grade_case(result: TaskResult) -> CaseGrade:
         actual_error = (actual.get("error") or {})
         if actual_error.get("code") != expected_error.get("code"):
             errors.append(
-                f"error.code 불일치 (기대: {expected_error.get('code')}, 실제: {actual_error.get('code')})"
+                f"error.code 불일치 (기대: {expected_error.get('code')}, "
+                f"실제: {actual_error.get('code')})"
             )
 
     # forbidden_sources 검증 — injection 케이스에서 정책 혼합 여부 확인
@@ -194,7 +195,7 @@ def _compute_metrics(
 
     # 2. 자동응답 분기 정확도 — autoReplyAvailable 비교 대상 케이스만
     auto_reply_cases = [
-        (c, r) for c, r in zip(cases, results)
+        (c, r) for c, r in zip(cases, results, strict=True)
         if (r.expected.get("data") or {}).get("autoReplyAvailable") is not None
         and r.runner_error is None
     ]
@@ -217,7 +218,7 @@ def _compute_metrics(
 
     # 3. RAG 근거 일치율 — expected.data.usedSources가 있는 케이스만
     rag_cases = [
-        (c, r) for c, r in zip(cases, results)
+        (c, r) for c, r in zip(cases, results, strict=True)
         if (r.expected.get("data") or {}).get("usedSources") is not None
         and r.runner_error is None
     ]
