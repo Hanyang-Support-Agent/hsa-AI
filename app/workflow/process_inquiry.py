@@ -12,7 +12,6 @@ import httpx
 from pydantic import ValidationError
 from pydantic_ai.exceptions import UnexpectedModelBehavior
 
-from app.boundaries import rds_reader
 from app.boundaries.llm_client import STRICT_OUTPUT_FORMAT
 from app.services.classify_inquiry import classify_inquiry
 from app.services.decide_auto_reply import decide_auto_reply
@@ -92,12 +91,6 @@ def _process_inquiry(inquiry: CustomerInquiry) -> InquiryProcessResult:
             ),
             error=None,
         )
-
-    # RDS 조회 — DELIVERY 분류일 때만 실행 (stub: 현재 None 반환)
-    if classification.category == InquiryCategory.DELIVERY:
-        db_context = rds_reader.lookup_order_context(inquiry.inquiry_id)
-        if db_context is not None:
-            inquiry = inquiry.model_copy(update={"context": db_context})
 
     auto_reply = decide_auto_reply(inquiry, classification)
     if auto_reply.available:

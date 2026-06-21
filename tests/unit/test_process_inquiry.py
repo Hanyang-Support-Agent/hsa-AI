@@ -9,7 +9,6 @@ process_inquiry orchestrator 단위 테스트.
 import pytest
 
 import app.workflow.process_inquiry as process_module
-from app.boundaries import rds_reader as rds_reader_module
 from app.boundaries.llm_client import STRICT_OUTPUT_FORMAT
 from schemas.auto_reply import AutoReplyDecision
 from schemas.classification import ClassificationResult, InquiryCategory
@@ -557,75 +556,3 @@ def test_orchestrator_enables_strict_format_on_second_retry(
 
     assert observed == [False, False, True]
     assert STRICT_OUTPUT_FORMAT.get() is False
-
-
-def test_rds_not_called_for_product_inquiry(monkeypatch: pytest.MonkeyPatch) -> None:
-    inquiry = _make_inquiry("이 제품 소재가 뭔가요?")
-    rds_called = {"called": False}
-
-    def fake_classify_inquiry(inquiry: CustomerInquiry) -> ClassificationResult:
-        return ClassificationResult(
-            category=InquiryCategory.PRODUCT,
-            confidence=0.9,
-            reason="상품 문의",
-        )
-
-    def fake_decide_auto_reply(
-        inquiry: CustomerInquiry,
-        classification: ClassificationResult,
-    ) -> AutoReplyDecision:
-        return AutoReplyDecision(available=False, reason="RAG 대상")
-
-    def fake_generate_rag_draft(
-        inquiry: CustomerInquiry,
-    ) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
-        return None, []
-
-    def spy_rds(inquiry_id: str) -> None:
-        rds_called["called"] = True
-        return None
-
-    monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
-    monkeypatch.setattr(process_module, "decide_auto_reply", fake_decide_auto_reply)
-    monkeypatch.setattr(process_module, "generate_rag_draft", fake_generate_rag_draft)
-    monkeypatch.setattr(rds_reader_module, "lookup_order_context", spy_rds)
-
-    process_module.process_inquiry(inquiry)
-
-    assert rds_called["called"] is False
-
-
-def test_rds_not_called_for_refund_inquiry(monkeypatch: pytest.MonkeyPatch) -> None:
-    inquiry = _make_inquiry("반품하고 싶어요.")
-    rds_called = {"called": False}
-
-    def fake_classify_inquiry(inquiry: CustomerInquiry) -> ClassificationResult:
-        return ClassificationResult(
-            category=InquiryCategory.REFUND_EXCHANGE,
-            confidence=0.9,
-            reason="교환/환불 문의",
-        )
-
-    def fake_decide_auto_reply(
-        inquiry: CustomerInquiry,
-        classification: ClassificationResult,
-    ) -> AutoReplyDecision:
-        return AutoReplyDecision(available=False, reason="RAG 대상", risk_tags=[RiskTag.REFUND])
-
-    def fake_generate_rag_draft(
-        inquiry: CustomerInquiry,
-    ) -> tuple[RagDraftAnswer | None, list[RiskTag]]:
-        return None, []
-
-    def spy_rds(inquiry_id: str) -> None:
-        rds_called["called"] = True
-        return None
-
-    monkeypatch.setattr(process_module, "classify_inquiry", fake_classify_inquiry)
-    monkeypatch.setattr(process_module, "decide_auto_reply", fake_decide_auto_reply)
-    monkeypatch.setattr(process_module, "generate_rag_draft", fake_generate_rag_draft)
-    monkeypatch.setattr(rds_reader_module, "lookup_order_context", spy_rds)
-
-    process_module.process_inquiry(inquiry)
-
-    assert rds_called["called"] is False
